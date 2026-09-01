@@ -8,12 +8,13 @@
 
 use std::collections::HashMap;
 
-/// 存储操作错误（成员B可继续扩展）
+/// 存储操作错误
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StoreError {
-    /// 键不合法（空、含空格、含换行等），附带具体说明
+    /// 键不合法（空、含空白、含换行等），附带具体说明
     InvalidKey(String),
-    /// 键不存在
+    /// 键不存在（保留给上层使用；当前 get 缺失返回 Ok(None)，由调用方按协议输出"键不存在"）
+    #[allow(dead_code)]
     KeyNotFound,
 }
 
@@ -28,7 +29,7 @@ impl std::fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
-/// 键值存储（第2天由成员B实现；本骨架保证全工程可编译）
+/// 键值存储（第2天已由成员B实现完整 CRUD）
 pub struct KVStore {
     data: HashMap<String, String>,
 }
@@ -39,43 +40,152 @@ impl KVStore {
         KVStore { data: HashMap::new() }
     }
 
+    /// 校验键合法性：非空、不含空白字符（空格/制表符）、不含换行
+    fn validate_key(key: &str) -> Result<(), StoreError> {
+        if key.is_empty() {
+            return Err(StoreError::InvalidKey("键不能为空".to_string()));
+        }
+        if key.chars().any(|c| c == ' ' || c == '\t') {
+            return Err(StoreError::InvalidKey("键不能包含空白字符".to_string()));
+        }
+        if key.contains('\n') || key.contains('\r') {
+            return Err(StoreError::InvalidKey("键不能包含换行".to_string()));
+        }
+        Ok(())
+    }
+
     /// 写入或覆盖键值
     pub fn set(&mut self, key: &str, value: &str) -> Result<(), StoreError> {
-        // TODO(成员B): 第2天实现，含非法键校验；成功后插入 data
-        let _ = (key, value, &mut self.data);
+        Self::validate_key(key)?;
+        self.data.insert(key.to_string(), value.to_string());
         Ok(())
     }
 
     /// 查询键值；键不存在时返回 Ok(None)
     pub fn get(&self, key: &str) -> Result<Option<&str>, StoreError> {
-        // TODO(成员B): 第2天实现
-        let _ = (key, &self.data);
-        Ok(None)
+        Self::validate_key(key)?;
+        Ok(self.data.get(key).map(String::as_str))
     }
 
     /// 删除键值；返回是否真的删除了某个键
     pub fn delete(&mut self, key: &str) -> Result<bool, StoreError> {
-        // TODO(成员B): 第2天实现
-        let _ = (key, &mut self.data);
-        Ok(false)
+        Self::validate_key(key)?;
+        Ok(self.data.remove(key).is_some())
     }
 
     /// 列出全部键（按键名字典序排列，方便演示）
     pub fn list(&self) -> Vec<String> {
-        // TODO(成员B): 第2天实现
-        let _ = &self.data;
-        Vec::new()
+        let mut keys: Vec<String> = self.data.keys().cloned().collect();
+        keys.sort();
+        keys
     }
 
     /// 当前数据数量
     pub fn len(&self) -> usize {
-        // TODO(成员B): 第2天实现
-        let _ = &self.data;
-        0
+        self.data.len()
     }
 
     /// 是否为空
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.data.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 预置 a/b/c 三个键的存储
+    fn sample_store() -> KVStore {
+        let mut store = KVStore::new();
+        store.set("b", "2").unwrap();
+        store.set("a", "1").unwrap();
+        store.set("c", "3").unwrap();
+        store
+    }
+
+    #[test]
+    fn set_and_get_roundtrip() {
+        let mut store = KVStore::new();
+        store.set("name", "kvstore").unwrap();
+        assert_eq!(store.get("name"), Ok(Some("kvstore")));
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn set_overwrites_existing_key() {
+        let mut store = KVStore::new();
+        store.set("k", "v1").unwrap();
+        store.set("k", "v2").unwrap();
+        assert_eq!(store.get("k"), Ok(Some("v2")));
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn get_missing_key_returns_none() {
+        let store = KVStore::new();
+        assert_eq!(store.get("nope"), Ok(None));
+    }
+
+    #[test]
+    fn delete_returns_whether_removed() {
+        let mut store = sample_store();
+        assert!(store.delete("a").unwrap());
+        assert!(!store.delete("a").unwrap()); // 已删除，再删返回 false
+        assert!(!store.delete("missing").unwrap());
+        assert_eq!(store.len(), 2);
+    }
+
+    #[test]
+    fn list_returns_sorted_keys() {
+        let store = sample_store();
+        assert_eq!(
+            store.list(),
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
+    }
+
+    #[test]
+    fn list_empty_store() {
+        let store = KVStore::new();
+        assert!(store.list().is_empty());
+    }
+
+    #[test]
+    fn len_and_is_empty() {
+        let mut store = KVStore::new();
+        assert!(store.is_empty());
+        assert_eq!(store.len(), 0);
+        store.set("k", "v").unwrap();
+        assert!(!store.is_empty());
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn reject_empty_key() {
+        let mut store = KVStore::new();
+        assert!(matches!(store.set("", "v"), Err(StoreError::InvalidKey(_))));
+        assert!(matches!(store.get(""), Err(StoreError::InvalidKey(_))));
+        assert!(matches!(store.delete(""), Err(StoreError::InvalidKey(_))));
+    }
+
+    #[test]
+    fn reject_key_with_space() {
+        let mut store = KVStore::new();
+        assert!(matches!(store.set("a b", "v"), Err(StoreError::InvalidKey(_))));
+        assert!(matches!(store.get("a b"), Err(StoreError::InvalidKey(_))));
+    }
+
+    #[test]
+    fn reject_key_with_newline() {
+        let mut store = KVStore::new();
+        assert!(matches!(store.set("a\nb", "v"), Err(StoreError::InvalidKey(_))));
+    }
+
+    #[test]
+    fn value_can_contain_spaces() {
+        let mut store = KVStore::new();
+        store.set("k", "hello world  !").unwrap();
+        assert_eq!(store.get("k"), Ok(Some("hello world  !")));
     }
 }
