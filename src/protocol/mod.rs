@@ -57,7 +57,7 @@ impl Command {
     /// 该命令需要的参数个数（用于校验缺参数/多参数）
     pub fn required_args(&self) -> usize {
         match self {
-            Command::Set => 2, // key value
+            Command::Set => 2,                // key value
             Command::Get | Command::Del => 1, // key
             Command::List | Command::Status | Command::Ping | Command::Exit => 0,
         }

@@ -12,5 +12,8 @@ use crate::protocol::DEFAULT_ADDR;
 /// 启动服务器（第2天起由 main 调用）
 pub fn run() {
     // TODO(成员A): 第2天实现stdin主循环；第3天实现TCP监听
-    println!("服务器模块骨架（第2天实现主循环，监听地址: {}）", DEFAULT_ADDR);
+    println!(
+        "服务器模块骨架（第2天实现主循环，监听地址: {}）",
+        DEFAULT_ADDR
+    );
 }

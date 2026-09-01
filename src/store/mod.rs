@@ -36,7 +36,9 @@ pub struct KVStore {
 impl KVStore {
     /// 创建一个空存储
     pub fn new() -> Self {
-        KVStore { data: HashMap::new() }
+        KVStore {
+            data: HashMap::new(),
+        }
     }
 
     /// 写入或覆盖键值

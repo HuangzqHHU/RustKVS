@@ -1,12 +1,27 @@
 //! 命令行客户端模块（成员C负责）
 //!
 //! 第1天：定义入口函数签名（骨架，可编译）。
-//! 第2天：实现REPL：循环读取用户输入、显示提示符、EXIT退出。
-//! 第3天：接入 TcpStream 连接服务器，发送请求、读取并显示响应；
-//!        处理连接失败、服务器关闭、超时等异常，提示清晰且不崩溃。
+use std::io::{self, Write};
 
-/// 启动命令行客户端（第2天起由 main 调用）
-pub fn run() {
-    // TODO(成员C): 第2天实现REPL；第3天接入网络
-    println!("客户端模块骨架（第2天实现REPL，第3天接入网络）");
+pub fn run_repl_skeleton() {
+    loop {
+        print!("kv> ");
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+
+        match io::stdin().read_line(&mut input) {
+            Ok(0) => {
+                println!("输入结束，客户端退出。");
+                break;
+            }
+            Ok(_) => {
+                println!("你输入的是：{}", input.trim());
+            }
+            Err(error) => {
+                eprintln!("读取输入失败：{}", error);
+                break;
+            }
+        }
+    }
 }

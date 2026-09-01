@@ -7,30 +7,21 @@
 //!   - 单条命令出错不影响后续命令。
 
 use crate::protocol::Command;
+use std::fmt;
 
-/// 解析成功后的命令表示
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParsedCommand {
-    /// 命令类型
-    pub cmd: Command,
-    /// 参数列表（如 SET 的 [key, value]、GET 的 [key]；无参数命令为空）
-    pub args: Vec<String>,
-}
-
-/// 解析错误（message 为可直接展示给用户的中文提示）
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
     pub message: String,
 }
 
-/// 将一行用户输入解析为命令（第2天由成员C实现完整校验）
-pub fn parse(line: &str) -> Result<ParsedCommand, ParseError> {
-    // TODO(成员C): 第2天实现。
-    // 提示：
-    //   1) 用 split_whitespace 切分，取首词作为命令名（大小写不敏感）；
-    //   2) 用 Command::from_str 识别命令，返回 None 时给 UNKNOWN_COMMAND；
-    //   3) 用 Command::required_args() 校验参数个数；
-    //   4) 校验键合法性（非空、不含空格、不含换行）。
-    let _ = line;
-    Err(ParseError { message: "解析器待实现（第2天，成员C）".to_string() })
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ERROR {}", self.message)
+    }
+}
+
+pub fn parse_command(_line: &str) -> Result<Command, ParseError> {
+    Err(ParseError {
+        message: "解析器暂未实现".to_string(),
+    })
 }
