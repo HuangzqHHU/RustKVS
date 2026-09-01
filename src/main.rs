@@ -4,22 +4,29 @@
 //! 本文件只负责按命令行参数分发启动模式。
 
 use kvstore::client;
+use kvstore::protocol::DEFAULT_ADDR;
 use kvstore::server;
 use kvstore::store::KVStore;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(|s| s.as_str()) {
-        Some("server") => server::run(),
-        Some("client") => run_local_client(),
+        Some("server") => server::run(&args[2..]),
+        Some("client") => {
+            if args.iter().any(|a| a == "--local") {
+                run_local_client();
+            } else {
+                client::run_tcp_repl(DEFAULT_ADDR);
+            }
+        }
         Some("--version") | Some("-V") => print_version(),
         _ => print_help(),
     }
 }
 
-/// 本地客户端（第2天：不经网络，复用 server 的执行逻辑；EXIT 由 REPL 处理）
+/// 本地客户端（第2天模式：不经网络，复用 server 的执行逻辑；EXIT 由 REPL 处理）
 ///
-/// 第3天起将替换为 TCP 客户端（成员C的 client::run_tcp_repl）。
+/// 第3天起默认使用 TCP 客户端（成员C的 run_tcp_repl），本函数仅 --local 时保留。
 fn run_local_client() {
     let mut store = KVStore::new();
     client::run_local_repl(|parsed| match server::execute(&mut store, &parsed) {
@@ -47,13 +54,14 @@ fn print_help() {
     print_version();
     println!();
     println!("用法:");
-    println!("  cargo run -- server         启动服务器（第2天：本地模式，无网络）");
-    println!("  cargo run -- client         启动客户端（第2天：本地模式，无网络）");
-    println!("  cargo run -- --version      显示版本与模块清单");
-    println!("  cargo run -- --help         显示本帮助");
+    println!("  cargo run -- server          启动服务器（第3天：网络模式，监听 {}）", DEFAULT_ADDR);
+    println!("  cargo run -- server --local  启动服务器（本地模式，无网络）");
+    println!("  cargo run -- client          启动客户端（第3天：连接服务器）");
+    println!("  cargo run -- client --local  启动客户端（本地模式，无网络）");
+    println!("  cargo run -- --version       显示版本与模块清单");
+    println!("  cargo run -- --help          显示本帮助");
     println!();
     println!("开发计划:");
-    println!("  第2天: 本地主循环跑通增删改查（server 与 client 均可用）");
     println!("  第3天: TCP网络通信 + 持久化");
     println!("  第4天: 多客户端并发 + 测试 + 演示");
 }

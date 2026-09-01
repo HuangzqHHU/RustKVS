@@ -1,27 +1,37 @@
 //! 服务器模块（成员A负责）
 //!
-//! 第2天：实现主循环：stdin读命令 → parser解析 → store执行 → 打印结果；
-//!        保证单条命令出错后程序继续运行。
-//! 第3天：接入 TcpListener 监听 DEFAULT_ADDR，每连接一线程。
-//! 第4天：启动参数化（端口、数据文件路径）；并发安全共享；错误隔离。
+//! 第2天：stdin 主循环（本地模式）。
+//! 第3天：TCP 网络模式——TcpListener 监听、逐行读请求、执行、写回响应；
+//!        处理消息分段（BufReader::read_line）、超长请求、非法文本、客户端断开。
+//! 第4天：多客户端并发（每连接一线程 + Arc<Mutex<KVStore>>）。
 //!
-//! 依赖（已合并，全部可用）：
-//!   - parser::parse_command（成员C）：一行输入 → ParsedCommand / ParseError
-//!   - store::KVStore（成员B）：内存增删改查
-//!
-//! 接口说明：成员C第2天交付时调整了接口（parse→parse_command，
-//! 字段 args→key/value），本模块已适配；接口变更见 DESIGN.md。
+//! 依赖（已合并）：
+//!   - parser::parse_command（成员C）
+//!   - store::KVStore（成员B）
+//!   - protocol 常量：DEFAULT_ADDR / MAX_MSG_LEN
 
 use crate::parser;
 use crate::protocol::error;
 use crate::protocol::Command;
+use crate::protocol::DEFAULT_ADDR;
 use crate::store::KVStore;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, BufReader, Write};
+use std::net::{TcpListener, TcpStream};
 
-/// 启动服务器（第2天：本地 stdin 主循环，无网络）
-pub fn run() {
+/// 启动服务器。
+/// 默认：网络模式（第3天）；传 `--local`：本地 stdin 模式（第2天，调试/演示用）。
+pub fn run(args: &[String]) {
+    if args.iter().any(|a| a == "--local") {
+        run_local();
+    } else {
+        run_network();
+    }
+}
+
+/// 第2天模式：本地 stdin 主循环（无网络）
+fn run_local() {
     let mut store = KVStore::new();
-    println!("kvstore 服务器已启动（第2天：本地模式，无网络）");
+    println!("kvstore 服务器已启动（本地模式，无网络）");
     println!("输入命令开始操作，输入 EXIT 退出，Ctrl+Z 回车可强制结束。");
     println!();
 
@@ -29,39 +39,136 @@ pub fn run() {
     let mut stdout = io::stdout();
 
     loop {
-        // 1) 打印提示符并刷新（print! 不会自动刷新，必须 flush 才会显示）
+        // 提示符（print! 不自动刷新，必须 flush）
         print!("kvstore> ");
         let _ = stdout.flush();
 
-        // 2) 读取一行用户输入
         let mut line = String::new();
         let n = stdin.lock().read_line(&mut line).unwrap_or(0);
         if n == 0 {
-            // EOF：Windows 下按 Ctrl+Z 再回车触发，正常退出
+            // EOF：Ctrl+Z 回车
             println!();
             break;
         }
         let line = line.trim_end();
         if line.is_empty() {
-            continue; // 空行忽略，不当作错误
+            continue;
         }
 
-        // 3) 解析（成员C的 parser）
         let parsed = match parser::parse_command(line) {
             Ok(p) => p,
             Err(e) => {
                 println!("ERROR {}", e.message);
-                continue; // 单条命令出错，继续下一条
+                continue;
             }
         };
 
-        // 4) 执行并打印结果；None 表示收到 EXIT
         match execute(&mut store, &parsed) {
             Some(reply) => println!("{}", reply),
             None => break,
         }
     }
     println!("服务器已退出");
+}
+
+/// 第3天模式：TCP 网络服务
+///
+/// 第3天为单客户端串行处理：一个连接处理完（EXIT 或断开）再接下一个。
+/// 第4天改为每连接一线程并发处理（见 handle_connection 注释）。
+fn run_network() {
+    let listener = match TcpListener::bind(DEFAULT_ADDR) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("监听 {} 失败: {}", DEFAULT_ADDR, e);
+            std::process::exit(1);
+        }
+    };
+    println!("kvstore 服务器已启动（第3天：网络模式）");
+    println!("监听地址: {}", DEFAULT_ADDR);
+    println!("启动状态: 正在监听，等待客户端连接...");
+    println!();
+
+    let mut store = KVStore::new();
+
+    loop {
+        match listener.accept() {
+            Ok((stream, addr)) => {
+                println!("[连接] {} 已连接", addr);
+                handle_connection(stream, &mut store);
+                println!("[连接] {} 已断开", addr);
+            }
+            Err(e) => {
+                // 单个 accept 失败不影响服务器继续监听
+                eprintln!("[错误] 接受连接失败: {}", e);
+            }
+        }
+    }
+}
+
+/// 处理一个客户端连接：逐行读请求 → 解析 → 执行 → 写回响应
+///
+/// - BufReader::read_line 自动处理 TCP 消息分段（半包/粘包），无需自拼缓冲；
+/// - 超长请求由 parser 的 MAX_MSG_LEN 校验并回 ERROR；
+/// - 客户端断开（read_line 返回 0）或收到 EXIT 时结束本连接；
+/// - 单连接内一条命令出错不影响后续命令。
+///
+/// 第4天改造点：本函数改成接收 `Arc<Mutex<KVStore>>`，
+/// 在 run_network 中 `thread::spawn(move || handle_connection(stream, store))`。
+fn handle_connection(stream: TcpStream, store: &mut KVStore) {
+    // 读写各持一个句柄：BufReader 读，原 stream 写
+    let read_stream = match stream.try_clone() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[错误] 克隆连接失败: {}", e);
+            return;
+        }
+    };
+    let mut reader = BufReader::new(read_stream);
+    let mut writer = stream;
+
+    loop {
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(0) => break, // 客户端已断开（EOF）
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("[错误] 读取请求失败: {}", e);
+                break;
+            }
+        }
+        let line = line.trim_end(); // 去掉 \r\n
+        if line.is_empty() {
+            continue; // 空行忽略
+        }
+
+        // 解析；错误回写 ERROR 后继续处理下一条
+        let parsed = match parser::parse_command(line) {
+            Ok(p) => p,
+            Err(e) => {
+                if send_line(&mut writer, &format!("ERROR {}", e.message)).is_err() {
+                    break;
+                }
+                continue;
+            }
+        };
+
+        // 执行；None 表示收到 EXIT，关闭本连接
+        match execute(store, &parsed) {
+            Some(reply) => {
+                if send_line(&mut writer, &reply).is_err() {
+                    break;
+                }
+            }
+            None => break,
+        }
+    }
+}
+
+/// 向客户端写入一行响应（自动补换行符）并刷新；失败返回 Err（客户端可能已断开）
+fn send_line(writer: &mut TcpStream, reply: &str) -> std::io::Result<()> {
+    writer.write_all(reply.as_bytes())?;
+    writer.write_all(b"\n")?;
+    writer.flush()
 }
 
 /// 执行一条已解析的命令，返回要打印的响应；返回 None 表示退出服务器
