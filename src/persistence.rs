@@ -66,7 +66,9 @@ pub struct Persistence {
 impl Persistence {
     /// 新建持久化实例
     pub fn new(log_path: impl Into<std::path::PathBuf>) -> Self {
-        Persistence { log_path: log_path.into() }
+        Persistence {
+            log_path: log_path.into(),
+        }
     }
 
     /// 将一条修改记录追加到日志文件

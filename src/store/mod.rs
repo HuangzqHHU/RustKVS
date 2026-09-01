@@ -37,7 +37,9 @@ pub struct KVStore {
 impl KVStore {
     /// 创建一个空存储
     pub fn new() -> Self {
-        KVStore { data: HashMap::new() }
+        KVStore {
+            data: HashMap::new(),
+        }
     }
 
     /// 校验键合法性：非空、不含空白字符（空格/制表符）、不含换行

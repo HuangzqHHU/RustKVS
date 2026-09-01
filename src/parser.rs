@@ -6,31 +6,260 @@
 //!   - 未知命令、缺少参数、多余参数、非法键的明确中文错误提示；
 //!   - 单条命令出错不影响后续命令。
 
-use crate::protocol::Command;
+use crate::protocol::{Command, MAX_MSG_LEN, error};
+use std::fmt;
 
-/// 解析成功后的命令表示
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParsedCommand {
-    /// 命令类型
-    pub cmd: Command,
-    /// 参数列表（如 SET 的 [key, value]、GET 的 [key]；无参数命令为空）
-    pub args: Vec<String>,
-}
-
-/// 解析错误（message 为可直接展示给用户的中文提示）
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
     pub message: String,
 }
 
-/// 将一行用户输入解析为命令（第2天由成员C实现完整校验）
-pub fn parse(line: &str) -> Result<ParsedCommand, ParseError> {
-    // TODO(成员C): 第2天实现。
-    // 提示：
-    //   1) 用 split_whitespace 切分，取首词作为命令名（大小写不敏感）；
-    //   2) 用 Command::from_str 识别命令，返回 None 时给 UNKNOWN_COMMAND；
-    //   3) 用 Command::required_args() 校验参数个数；
-    //   4) 校验键合法性（非空、不含空格、不含换行）。
-    let _ = line;
-    Err(ParseError { message: "解析器待实现（第2天，成员C）".to_string() })
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ERROR {}", self.message)
+    }
+}
+
+// 这是你解析后交给服务器的完整命令。
+// Command 只表示“命令类型”；key 和 value 保存用户实际输入的参数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedCommand {
+    pub command: Command,
+    pub key: Option<String>,
+    pub value: Option<String>,
+}
+
+// 从一段文本中取出第一个单词，返回：
+// ("SET", " name Alice")
+// ("name", " Alice")
+fn take_word(input: &str) -> Option<(&str, &str)> {
+    let input = input.trim_start();
+
+    if input.is_empty() {
+        return None;
+    }
+
+    let end = input.find(char::is_whitespace).unwrap_or(input.len());
+
+    Some((&input[..end], &input[end..]))
+}
+
+// 检查 key 是否合法。
+fn validate_key(key: &str) -> Result<(), ParseError> {
+    if key.is_empty() {
+        return Err(ParseError {
+            message: format!("{}：key 不能为空", error::INVALID_KEY),
+        });
+    }
+
+    if key.contains(char::is_whitespace) || key.contains('\n') || key.contains('\r') {
+        return Err(ParseError {
+            message: format!("{}：key 不能包含空格或换行", error::INVALID_KEY),
+        });
+    }
+
+    Ok(())
+}
+
+// GET / DEL：只能有一个 key 参数。
+fn parse_one_key(rest: &str, command_name: &str) -> Result<String, ParseError> {
+    let (key, remain) = take_word(rest).ok_or_else(|| ParseError {
+        message: format!("{}：{} 需要 key", error::MISSING_ARG, command_name),
+    })?;
+
+    if !remain.trim().is_empty() {
+        return Err(ParseError {
+            message: format!("{}：{} 只能有一个 key", error::EXTRA_ARG, command_name),
+        });
+    }
+
+    validate_key(key)?;
+
+    Ok(key.to_string())
+}
+
+// LIST / STATUS / PING / EXIT：不接受参数。
+fn check_no_argument(rest: &str, command_name: &str) -> Result<(), ParseError> {
+    if !rest.trim().is_empty() {
+        return Err(ParseError {
+            message: format!("{}：{} 不需要参数", error::EXTRA_ARG, command_name),
+        });
+    }
+
+    Ok(())
+}
+
+// 这是你的主要函数：把一行用户输入转换为 ParsedCommand。
+pub fn parse_command(line: &str) -> Result<ParsedCommand, ParseError> {
+    if line.as_bytes().len() > MAX_MSG_LEN {
+        return Err(ParseError {
+            message: format!(
+                "{}：单条命令不能超过 {} 字节",
+                error::MSG_TOO_LONG,
+                MAX_MSG_LEN
+            ),
+        });
+    }
+
+    // 去掉用户按回车输入产生的换行符。
+    let line = line.trim_end_matches('\n').trim_end_matches('\r');
+    let line = line.trim();
+
+    if line.is_empty() {
+        return Err(ParseError {
+            message: format!("{}：命令不能为空", error::UNKNOWN_COMMAND),
+        });
+    }
+
+    let (command_text, rest) = take_word(line).unwrap();
+
+    // 使用组长已经写好的 from_str。
+    // 它规定命令大小写不敏感，所以 set / SET / Set 都可以。
+    let command = Command::from_str(command_text).ok_or_else(|| ParseError {
+        message: format!("{}：{}", error::UNKNOWN_COMMAND, command_text),
+    })?;
+
+    match command {
+        Command::Set => {
+            let (key, value_part) = take_word(rest).ok_or_else(|| ParseError {
+                message: format!("{}：SET 需要 key 和 value", error::MISSING_ARG),
+            })?;
+
+            validate_key(key)?;
+
+            // 第二个空格后的所有文字都属于 value，因此 value 可以含空格。
+            let value = value_part.trim_start();
+
+            if value.is_empty() {
+                return Err(ParseError {
+                    message: format!("{}：SET 需要 value", error::MISSING_ARG),
+                });
+            }
+
+            Ok(ParsedCommand {
+                command: Command::Set,
+                key: Some(key.to_string()),
+                value: Some(value.to_string()),
+            })
+        }
+
+        Command::Get => Ok(ParsedCommand {
+            command: Command::Get,
+            key: Some(parse_one_key(rest, "GET")?),
+            value: None,
+        }),
+
+        Command::Del => Ok(ParsedCommand {
+            command: Command::Del,
+            key: Some(parse_one_key(rest, "DEL")?),
+            value: None,
+        }),
+
+        Command::List => {
+            check_no_argument(rest, "LIST")?;
+
+            Ok(ParsedCommand {
+                command: Command::List,
+                key: None,
+                value: None,
+            })
+        }
+
+        Command::Status => {
+            check_no_argument(rest, "STATUS")?;
+
+            Ok(ParsedCommand {
+                command: Command::Status,
+                key: None,
+                value: None,
+            })
+        }
+
+        Command::Ping => {
+            check_no_argument(rest, "PING")?;
+
+            Ok(ParsedCommand {
+                command: Command::Ping,
+                key: None,
+                value: None,
+            })
+        }
+
+        Command::Exit => {
+            check_no_argument(rest, "EXIT")?;
+
+            Ok(ParsedCommand {
+                command: Command::Exit,
+                key: None,
+                value: None,
+            })
+        }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::Command;
+
+    #[test]
+    fn can_parse_set() {
+        let result = parse_command("SET name Alice").unwrap();
+
+        assert_eq!(result.command, Command::Set);
+        assert_eq!(result.key, Some("name".to_string()));
+        assert_eq!(result.value, Some("Alice".to_string()));
+    }
+
+    #[test]
+    fn set_value_can_contain_spaces() {
+        let result = parse_command("SET sentence Rust is easy").unwrap();
+
+        assert_eq!(result.command, Command::Set);
+        assert_eq!(result.key, Some("sentence".to_string()));
+        assert_eq!(result.value, Some("Rust is easy".to_string()));
+    }
+
+    #[test]
+    fn can_parse_get() {
+        let result = parse_command("GET name").unwrap();
+
+        assert_eq!(result.command, Command::Get);
+        assert_eq!(result.key, Some("name".to_string()));
+        assert_eq!(result.value, None);
+    }
+
+    #[test]
+    fn can_parse_command_in_lowercase() {
+        let result = parse_command("get name").unwrap();
+
+        assert_eq!(result.command, Command::Get);
+    }
+
+    #[test]
+    fn missing_key_returns_error() {
+        let error = parse_command("GET").unwrap_err();
+
+        assert!(error.message.contains("缺少参数"));
+    }
+
+    #[test]
+    fn set_without_value_returns_error() {
+        let error = parse_command("SET name").unwrap_err();
+
+        assert!(error.message.contains("缺少参数"));
+    }
+
+    #[test]
+    fn extra_argument_returns_error() {
+        let error = parse_command("GET name extra").unwrap_err();
+
+        assert!(error.message.contains("多余参数"));
+    }
+
+    #[test]
+    fn unknown_command_returns_error() {
+        let error = parse_command("HELLO").unwrap_err();
+
+        assert!(error.message.contains("未知命令"));
+    }
 }
