@@ -1,16 +1,10 @@
 //! kvstore —— 可持久化网络键值存储系统
 //!
-//! 入口：按命令行参数启动不同模式。
-//! 第1天：仅支持 --version / --help。
-//! 第2天：支持 `server`（本地stdin主循环，无网络）。
-//! 第3天：支持 `client`（TCP连接）。
+//! 二进制入口：模块定义统一放在 src/lib.rs（库 crate），
+//! 本文件只负责按命令行参数分发启动模式，避免模块双份编译。
 
-mod client;
-mod parser;
-mod persistence;
-mod protocol;
-mod server;
-mod store;
+use kvstore::client;
+use kvstore::server;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -29,7 +23,7 @@ fn print_version() {
     println!("模块清单:");
     println!("  protocol    - 命令与消息格式定义【已定稿】");
     println!("  parser      - 命令解析与合法性校验（成员C）");
-    println!("  store       - 内存键值存储（成员B）");
+    println!("  store       - 内存键值存储（成员B）【已实现】");
     println!("  persistence - 追加日志与启动恢复（成员B）");
     println!("  server      - TCP监听与连接处理（成员A）");
     println!("  client      - 命令行客户端（成员C）");
@@ -47,7 +41,7 @@ fn print_help() {
     println!("  cargo run -- --help         显示本帮助");
     println!();
     println!("开发计划:");
-    println!("  第2天: 本地主循环跑通增删改查（依赖成员B/C实现合并）");
+    println!("  第2天: 本地主循环跑通增删改查（等成员C的 parser 合并）");
     println!("  第3天: TCP网络通信 + 持久化");
     println!("  第4天: 多客户端并发 + 测试 + 演示");
 }
