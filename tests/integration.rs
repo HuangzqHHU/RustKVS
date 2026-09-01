@@ -11,5 +11,6 @@
 #[test]
 fn placeholder_integration_test() {
     // 第1天占位：保证 cargo test 有集成测试可跑
+    println!("Hello, integration test!");
     assert!(true);
 }
