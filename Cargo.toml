@@ -1,0 +1,7 @@
+[package]
+name = "kvstore"
+version = "0.1.0"
+edition = "2024"
+description = "可持久化网络键值存储系统（课程设计：基于Rust）"
+
+[dependencies]
