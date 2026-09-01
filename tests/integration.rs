@@ -277,43 +277,38 @@ fn delete_twice_same_key() {
 
 /// SET 命令解析
 #[test]
-#[ignore = "parser 尚未实现（成员C 第2天交付）"]
 fn parse_set_command() {
-    use kvstore::parser::parse;
-    let result = parse("SET name Alice");
+    use kvstore::parser::parse_command;
+    let result = parse_command("SET name Alice");
     assert!(result.is_ok());
 }
 
 /// GET 命令解析
 #[test]
-#[ignore = "parser 尚未实现（成员C 第2天交付）"]
 fn parse_get_command() {
-    use kvstore::parser::parse;
-    let result = parse("GET name");
+    use kvstore::parser::parse_command;
+    let result = parse_command("GET name");
     assert!(result.is_ok());
 }
 
 /// 未知命令 → 错误
 #[test]
-#[ignore = "parser 尚未实现（成员C 第2天交付）"]
 fn parse_unknown_command() {
-    use kvstore::parser::parse;
-    assert!(parse("FOOBAR x").is_err());
+    use kvstore::parser::parse_command;
+    assert!(parse_command("FOOBAR x").is_err());
 }
 
 /// 缺少参数 → 错误
 #[test]
-#[ignore = "parser 尚未实现（成员C 第2天交付）"]
 fn parse_missing_args() {
-    use kvstore::parser::parse;
-    assert!(parse("SET name").is_err());
+    use kvstore::parser::parse_command;
+    assert!(parse_command("SET name").is_err());
 }
 
 /// 大小写不敏感
 #[test]
-#[ignore = "parser 尚未实现（成员C 第2天交付）"]
 fn parse_case_insensitive() {
-    use kvstore::parser::parse;
-    assert!(parse("set k v").is_ok());
-    assert!(parse("Get k").is_ok());
+    use kvstore::parser::parse_command;
+    assert!(parse_command("set k v").is_ok());
+    assert!(parse_command("Get k").is_ok());
 }

@@ -23,13 +23,13 @@ kvstore/
 
 ### 第2天（无网络，全链路在服务器进程内）：
 ```
-用户输入 → parser.parse() → KVStore.set/get/delete/list/len → 打印结果
+用户输入 → parser.parse_command() → KVStore.set/get/delete/list/len → 打印结果
 ```
 
 ### 第3天起（网络模式）：
 ```
-客户端: 用户输入 → parser.parse() → TcpStream 发送请求行
-服务器: TcpListener accept → 逐行读取 → parser.parse() → KVStore 操作
+客户端: 用户输入 → parser.parse_command() → TcpStream 发送请求行
+服务器: TcpListener accept → 逐行读取 → parser.parse_command() → KVStore 操作
        → Persistence.append()（写日志）→ 写回响应行
 ```
 
@@ -53,7 +53,7 @@ kvstore/
 
 | 接口 | 定义位置 | 签名 |
 |---|---|---|
-| 命令解析 | `parser::parse` | `fn parse(line: &str) -> Result<ParsedCommand, ParseError>` |
+| 命令解析 | `parser::parse_command` | `fn parse_command(line: &str) -> Result<ParsedCommand, ParseError>`；`ParsedCommand { command, key, value }`（第2天成员C实现时调整：原契约 `parse` / `args` 字段改为现签名，组长已确认并适配 server） |
 | 存储 | `store::KVStore` | `set/get/delete/list/len` |
 | 日志记录 | `persistence::LogRecord` | `to_line / from_line` |
 | 持久化 | `persistence::Persistence` | `append / recover` |
