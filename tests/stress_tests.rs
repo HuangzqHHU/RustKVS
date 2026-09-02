@@ -373,7 +373,6 @@ fn ttl_zero_is_error() {
 
 /// ttl 非数字 → 解析错误
 #[test]
-#[test]
 fn ttl_negative_is_error() {
     let addr = start_server();
     let (mut reader, mut writer) = connect(&addr);
