@@ -5,8 +5,7 @@
 
 use kvstore::client;
 use kvstore::protocol::DEFAULT_ADDR;
-use kvstore::server;
-use kvstore::store::KVStore;
+use kvstore::server::{self, Server};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -26,10 +25,12 @@ fn main() {
 
 /// 本地客户端（第2天模式：不经网络，复用 server 的执行逻辑；EXIT 由 REPL 处理）
 ///
-/// 第3天起默认使用 TCP 客户端（成员C的 run_tcp_repl），本函数仅 --local 时保留。
+/// 数据写临时文件，避免污染服务器数据文件；第3天起默认使用 TCP 客户端。
 fn run_local_client() {
-    let mut store = KVStore::new();
-    client::run_local_repl(|parsed| match server::execute(&mut store, &parsed) {
+    // 临时数据文件，防止本地调试污染 data/kv.log
+    let path = std::env::temp_dir().join("kvstore_local_client.log");
+    let mut server = Server::new(path.to_str().unwrap());
+    client::run_local_repl(|parsed| match server.execute(&parsed) {
         Some(reply) => reply,
         None => "BYE".to_string(),
     });
