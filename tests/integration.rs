@@ -3,12 +3,16 @@
 //! 第2天：无网络模式下的端到端测试
 //!   - KVStore 多步骤复杂场景（模拟完整用户操作流）
 //!   - 边界与异常场景全覆盖
-//!   - parser 测试暂用 #[ignore] 占位，等 C 实现后启用
+//!   - parser 集成测试（成员C已交付，启用）
+//!   - parser + KVStore 全链路端到端测试
 //!
-//! 说明：B 已经在 store 模块内写了单元测试（单方法级）。
-//! 这里写的是集成视角的测试——跨方法、多步骤、模拟真实使用流程。
+//! 说明：B 已经在 store 模块内写了单元测试（单方法级），
+//!       C 已经在 parser 模块内写了单元测试。
+//! 这里写的是集成视角的测试——跨方法、跨模块、多步骤、模拟真实使用流程。
 
 use kvstore::store::{KVStore, StoreError};
+use kvstore::parser::{parse_command, ParsedCommand, ParseError};
+use kvstore::protocol::Command;
 
 // ============================================================
 // 一、端到端操作流测试（模拟真实用户连续操作）
@@ -77,7 +81,6 @@ fn e2e_many_keys_insert_and_list() {
     // list 排序正确
     let keys = store.list();
     assert_eq!(keys.len(), n);
-    // 第0个应该是 key0，最后一个是 key99
     assert_eq!(keys.first().unwrap(), "key0");
     assert_eq!(keys.last().unwrap(), "key99");
 }
@@ -201,7 +204,7 @@ fn invalid_key_with_carriage_return() {
 #[test]
 fn invalid_key_does_not_pollute_store() {
     let mut store = KVStore::new();
-    let _ = store.set("", "v"); // 忽略错误
+    let _ = store.set("", "v");
     let _ = store.set("a b", "v");
     let _ = store.set("a\nb", "v");
 
@@ -228,14 +231,14 @@ fn list_empty_store() {
     assert_eq!(store.list().len(), 0);
 }
 
-/// list 按字典序排序（含数字的键）
+/// list 按字典序排序
 #[test]
 fn list_sorted_lexicographic() {
     let mut store = KVStore::new();
     store.set("z", "1").unwrap();
     store.set("apple", "2").unwrap();
     store.set("banana", "3").unwrap();
-    store.set("Zoo", "4").unwrap(); // 大写字母 ASCII 码在小写前面
+    store.set("Zoo", "4").unwrap();
 
     let keys = store.list();
     assert_eq!(
@@ -272,43 +275,276 @@ fn delete_twice_same_key() {
 }
 
 // ============================================================
-// 六、parser 集成测试（等 C 实现后取消 ignore）
+// 六、parser 集成测试（成员C已交付）
 // ============================================================
 
-/// SET 命令解析
+// --- 基本命令解析 ---
+
 #[test]
-fn parse_set_command() {
-    use kvstore::parser::parse_command;
-    let result = parse_command("SET name Alice");
-    assert!(result.is_ok());
+fn parse_set_basic() {
+    let result = parse_command("SET name Alice").unwrap();
+    assert_eq!(result.command, Command::Set);
+    assert_eq!(result.key, Some("name".to_string()));
+    assert_eq!(result.value, Some("Alice".to_string()));
 }
 
-/// GET 命令解析
 #[test]
-fn parse_get_command() {
-    use kvstore::parser::parse_command;
-    let result = parse_command("GET name");
-    assert!(result.is_ok());
+fn parse_get_basic() {
+    let result = parse_command("GET name").unwrap();
+    assert_eq!(result.command, Command::Get);
+    assert_eq!(result.key, Some("name".to_string()));
+    assert_eq!(result.value, None);
 }
 
-/// 未知命令 → 错误
+#[test]
+fn parse_del_basic() {
+    let result = parse_command("DEL name").unwrap();
+    assert_eq!(result.command, Command::Del);
+    assert_eq!(result.key, Some("name".to_string()));
+    assert_eq!(result.value, None);
+}
+
+#[test]
+fn parse_list() {
+    let result = parse_command("LIST").unwrap();
+    assert_eq!(result.command, Command::List);
+    assert_eq!(result.key, None);
+    assert_eq!(result.value, None);
+}
+
+#[test]
+fn parse_status() {
+    let result = parse_command("STATUS").unwrap();
+    assert_eq!(result.command, Command::Status);
+}
+
+#[test]
+fn parse_ping() {
+    let result = parse_command("PING").unwrap();
+    assert_eq!(result.command, Command::Ping);
+}
+
+#[test]
+fn parse_exit() {
+    let result = parse_command("EXIT").unwrap();
+    assert_eq!(result.command, Command::Exit);
+}
+
+// --- 大小写不敏感 ---
+
+#[test]
+fn parse_case_insensitive_lower() {
+    assert_eq!(parse_command("set k v").unwrap().command, Command::Set);
+    assert_eq!(parse_command("get k").unwrap().command, Command::Get);
+    assert_eq!(parse_command("del k").unwrap().command, Command::Del);
+    assert_eq!(parse_command("list").unwrap().command, Command::List);
+}
+
+#[test]
+fn parse_case_insensitive_mixed() {
+    assert_eq!(parse_command("SeT k v").unwrap().command, Command::Set);
+    assert_eq!(parse_command("Get k").unwrap().command, Command::Get);
+    assert_eq!(parse_command("PiNg").unwrap().command, Command::Ping);
+}
+
+// --- SET 的 value 可以包含空格 ---
+
+#[test]
+fn parse_set_value_with_spaces() {
+    let result = parse_command("SET sentence Rust is easy").unwrap();
+    assert_eq!(result.command, Command::Set);
+    assert_eq!(result.key, Some("sentence".to_string()));
+    assert_eq!(result.value, Some("Rust is easy".to_string()));
+}
+
+#[test]
+fn parse_set_value_with_special_chars() {
+    let result = parse_command("SET special !@#$%^&*()").unwrap();
+    assert_eq!(result.value, Some("!@#$%^&*()".to_string()));
+}
+
+// --- 错误场景 ---
+
 #[test]
 fn parse_unknown_command() {
-    use kvstore::parser::parse_command;
-    assert!(parse_command("FOOBAR x").is_err());
+    let err = parse_command("FOOBAR").unwrap_err();
+    assert!(err.message.contains("未知命令"));
 }
 
-/// 缺少参数 → 错误
 #[test]
-fn parse_missing_args() {
-    use kvstore::parser::parse_command;
-    assert!(parse_command("SET name").is_err());
+fn parse_empty_line() {
+    let err = parse_command("").unwrap_err();
+    assert!(err.message.contains("未知命令"));
 }
 
-/// 大小写不敏感
 #[test]
-fn parse_case_insensitive() {
-    use kvstore::parser::parse_command;
-    assert!(parse_command("set k v").is_ok());
-    assert!(parse_command("Get k").is_ok());
+fn parse_missing_arg_set() {
+    // SET 没有 key
+    let err = parse_command("SET").unwrap_err();
+    assert!(err.message.contains("缺少参数"));
+}
+
+#[test]
+fn parse_set_missing_value() {
+    // SET 有 key 但没有 value
+    let err = parse_command("SET name").unwrap_err();
+    assert!(err.message.contains("缺少参数"));
+}
+
+#[test]
+fn parse_missing_arg_get() {
+    let err = parse_command("GET").unwrap_err();
+    assert!(err.message.contains("缺少参数"));
+}
+
+#[test]
+fn parse_missing_arg_del() {
+    let err = parse_command("DEL").unwrap_err();
+    assert!(err.message.contains("缺少参数"));
+}
+
+#[test]
+fn parse_extra_arg_list() {
+    let err = parse_command("LIST extra").unwrap_err();
+    assert!(err.message.contains("多余参数"));
+}
+
+#[test]
+fn parse_extra_arg_get() {
+    let err = parse_command("GET name extra").unwrap_err();
+    assert!(err.message.contains("多余参数"));
+}
+
+#[test]
+fn parse_invalid_key_empty() {
+    // SET 后面两个空格再加 value → key 为空的情况
+    let err = parse_command("SET  value").unwrap_err();
+    assert!(err.message.contains("缺少参数") || err.message.contains("非法键"));
+}
+
+// 含空格 key 的非法校验在 store 层做（store 层已测试），
+// parser 层只按空格切分，不做语义级的 key 合法性判断。
+
+// --- 消息超长 ---
+
+#[test]
+fn parse_message_too_long() {
+    let long_cmd = "SET k ".to_string() + &"a".repeat(2000);
+    let err = parse_command(&long_cmd).unwrap_err();
+    assert!(err.message.contains("消息超长") || err.message.contains("不能超过"));
+}
+
+// --- 前后空白自动 trim ---
+
+#[test]
+fn parse_trims_leading_spaces() {
+    let result = parse_command("   SET k v").unwrap();
+    assert_eq!(result.command, Command::Set);
+}
+
+#[test]
+fn parse_trims_trailing_spaces() {
+    let result = parse_command("SET k v   ").unwrap();
+    assert_eq!(result.command, Command::Set);
+    assert_eq!(result.value, Some("v".to_string()));
+}
+
+// ============================================================
+// 七、parser + KVStore 全链路端到端测试
+// ============================================================
+
+/// 用 parse_command 解析命令后，真正执行到 KVStore 上
+/// 模拟服务器内部的处理流程：解析 → 执行 → 断言结果
+#[test]
+fn e2e_parse_and_execute_set_get() {
+    let mut store = KVStore::new();
+
+    // 解析 SET name Alice
+    let cmd = parse_command("SET name Alice").unwrap();
+    assert_eq!(cmd.command, Command::Set);
+
+    // 执行 SET
+    let key = cmd.key.as_deref().unwrap();
+    let value = cmd.value.as_deref().unwrap();
+    store.set(key, value).unwrap();
+
+    // 解析 GET name
+    let cmd = parse_command("GET name").unwrap();
+    assert_eq!(cmd.command, Command::Get);
+
+    // 执行 GET
+    let result = store.get(cmd.key.as_deref().unwrap()).unwrap();
+    assert_eq!(result, Some("Alice"));
+}
+
+/// 全链路：解析 SET → 覆盖 → 解析 DEL → 验证删除
+#[test]
+fn e2e_parse_and_execute_full_flow() {
+    let mut store = KVStore::new();
+
+    // SET a 1
+    let cmd = parse_command("SET a 1").unwrap();
+    store.set(cmd.key.as_deref().unwrap(), cmd.value.as_deref().unwrap()).unwrap();
+
+    // SET b 2
+    let cmd = parse_command("SET b 2").unwrap();
+    store.set(cmd.key.as_deref().unwrap(), cmd.value.as_deref().unwrap()).unwrap();
+
+    // 数量
+    assert_eq!(store.len(), 2);
+
+    // SET a 999（覆盖）
+    let cmd = parse_command("SET a 999").unwrap();
+    store.set(cmd.key.as_deref().unwrap(), cmd.value.as_deref().unwrap()).unwrap();
+    assert_eq!(store.len(), 2);
+    assert_eq!(store.get("a"), Ok(Some("999")));
+
+    // DEL b
+    let cmd = parse_command("DEL b").unwrap();
+    let removed = store.delete(cmd.key.as_deref().unwrap()).unwrap();
+    assert!(removed);
+    assert_eq!(store.len(), 1);
+
+    // LIST
+    let cmd = parse_command("LIST").unwrap();
+    assert_eq!(cmd.command, Command::List);
+    let keys = store.list();
+    assert_eq!(keys, vec!["a".to_string()]);
+
+    // STATUS
+    let cmd = parse_command("STATUS").unwrap();
+    assert_eq!(cmd.command, Command::Status);
+    assert_eq!(store.len(), 1);
+}
+
+/// 解析非法命令 → 返回错误 → 不影响存储状态
+#[test]
+fn e2e_parse_error_does_not_affect_store() {
+    let mut store = KVStore::new();
+    store.set("good", "value").unwrap();
+
+    // 尝试解析一堆错误命令
+    let _ = parse_command("");
+    let _ = parse_command("FOOBAR");
+    let _ = parse_command("SET");
+    let _ = parse_command("GET");
+
+    // 存储状态不变
+    assert_eq!(store.len(), 1);
+    assert_eq!(store.get("good"), Ok(Some("value")));
+}
+
+/// PING 和 EXIT 不操作数据，只解析成功即可
+#[test]
+fn e2e_ping_exit_no_side_effects() {
+    let store = KVStore::new();
+
+    let ping = parse_command("PING").unwrap();
+    assert_eq!(ping.command, Command::Ping);
+
+    let exit = parse_command("EXIT").unwrap();
+    assert_eq!(exit.command, Command::Exit);
+
+    // 存储仍然为空
+    assert!(store.is_empty());
 }
