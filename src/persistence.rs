@@ -45,12 +45,17 @@ impl LogRecord {
             if key.is_empty() {
                 return None;
             }
-            Some(LogRecord::Set { key: key.to_string(), value: value.to_string() })
+            Some(LogRecord::Set {
+                key: key.to_string(),
+                value: value.to_string(),
+            })
         } else if cmd.eq_ignore_ascii_case("DEL") {
             if rest.is_empty() || rest.contains(' ') {
                 return None;
             }
-            Some(LogRecord::Del { key: rest.to_string() })
+            Some(LogRecord::Del {
+                key: rest.to_string(),
+            })
         } else {
             None
         }
@@ -103,8 +108,7 @@ impl Persistence {
 
         let reader = std::io::BufReader::new(file);
         for (idx, line) in reader.lines().enumerate() {
-            let line = line
-                .map_err(|e| format!("读取日志文件第 {} 行失败: {}", idx + 1, e))?;
+            let line = line.map_err(|e| format!("读取日志文件第 {} 行失败: {}", idx + 1, e))?;
             if line.trim().is_empty() {
                 return Err(format!("日志文件第 {} 行为空（文件可能损坏）", idx + 1));
             }
@@ -139,13 +143,21 @@ mod tests {
 
     /// 生成隔离的临时日志路径，避免并发测试互相干扰
     fn temp_log(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("kvstore_persist_{}_{}.log", std::process::id(), name))
+        std::env::temp_dir().join(format!(
+            "kvstore_persist_{}_{}.log",
+            std::process::id(),
+            name
+        ))
     }
 
     #[test]
     fn to_line_formats_set_and_del() {
         assert_eq!(
-            LogRecord::Set { key: "k".into(), value: "v".into() }.to_line(),
+            LogRecord::Set {
+                key: "k".into(),
+                value: "v".into()
+            }
+            .to_line(),
             "SET k v"
         );
         assert_eq!(LogRecord::Del { key: "k".into() }.to_line(), "DEL k");
@@ -155,7 +167,10 @@ mod tests {
     fn from_line_parses_set_with_spaces_in_value() {
         assert_eq!(
             LogRecord::from_line("SET k hello world !"),
-            Some(LogRecord::Set { key: "k".into(), value: "hello world !".into() })
+            Some(LogRecord::Set {
+                key: "k".into(),
+                value: "hello world !".into()
+            })
         );
     }
 
@@ -171,7 +186,10 @@ mod tests {
     fn from_line_is_case_insensitive() {
         assert_eq!(
             LogRecord::from_line("set k v"),
-            Some(LogRecord::Set { key: "k".into(), value: "v".into() })
+            Some(LogRecord::Set {
+                key: "k".into(),
+                value: "v".into()
+            })
         );
         assert_eq!(
             LogRecord::from_line("del k"),
@@ -193,8 +211,14 @@ mod tests {
     #[test]
     fn to_line_and_from_line_roundtrip() {
         let recs = vec![
-            LogRecord::Set { key: "a".into(), value: "1".into() },
-            LogRecord::Set { key: "b".into(), value: "with space".into() },
+            LogRecord::Set {
+                key: "a".into(),
+                value: "1".into(),
+            },
+            LogRecord::Set {
+                key: "b".into(),
+                value: "with space".into(),
+            },
             LogRecord::Del { key: "a".into() },
         ];
         for rec in recs {
@@ -209,8 +233,16 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let p = Persistence::new(&path);
 
-        p.append(&LogRecord::Set { key: "name".into(), value: "kvstore".into() }).unwrap();
-        p.append(&LogRecord::Set { key: "msg".into(), value: "hello world".into() }).unwrap();
+        p.append(&LogRecord::Set {
+            key: "name".into(),
+            value: "kvstore".into(),
+        })
+        .unwrap();
+        p.append(&LogRecord::Set {
+            key: "msg".into(),
+            value: "hello world".into(),
+        })
+        .unwrap();
         p.append(&LogRecord::Del { key: "msg".into() }).unwrap();
 
         let mut store = KVStore::new();

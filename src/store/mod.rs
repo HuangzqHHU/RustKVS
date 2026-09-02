@@ -174,14 +174,20 @@ mod tests {
     #[test]
     fn reject_key_with_space() {
         let mut store = KVStore::new();
-        assert!(matches!(store.set("a b", "v"), Err(StoreError::InvalidKey(_))));
+        assert!(matches!(
+            store.set("a b", "v"),
+            Err(StoreError::InvalidKey(_))
+        ));
         assert!(matches!(store.get("a b"), Err(StoreError::InvalidKey(_))));
     }
 
     #[test]
     fn reject_key_with_newline() {
         let mut store = KVStore::new();
-        assert!(matches!(store.set("a\nb", "v"), Err(StoreError::InvalidKey(_))));
+        assert!(matches!(
+            store.set("a\nb", "v"),
+            Err(StoreError::InvalidKey(_))
+        ));
     }
 
     #[test]

@@ -15,8 +15,8 @@
 
 use crate::parser;
 use crate::persistence::{LogRecord, Persistence};
-use crate::protocol::error;
 use crate::protocol::Command;
+use crate::protocol::error;
 use crate::protocol::{DEFAULT_DATA_FILE, DEFAULT_PORT};
 use crate::store::KVStore;
 use std::io::{self, BufRead, BufReader, Write};
@@ -336,11 +336,8 @@ mod tests {
 
     /// 每个测试独立的临时数据文件，避免并发测试互相干扰
     fn make_server(tag: &str) -> Server {
-        let path = std::env::temp_dir().join(format!(
-            "kvstore_ut_{}_{}.log",
-            std::process::id(),
-            tag
-        ));
+        let path =
+            std::env::temp_dir().join(format!("kvstore_ut_{}_{}.log", std::process::id(), tag));
         let _ = std::fs::remove_file(&path);
         Server::new(path.to_str().unwrap())
     }
@@ -369,24 +366,32 @@ mod tests {
     #[test]
     fn set_returns_ok_and_persists() {
         let mut server = make_server("set");
-        let reply = server.execute(&cmd(Command::Set, Some("course"), Some("Rust"))).unwrap();
+        let reply = server
+            .execute(&cmd(Command::Set, Some("course"), Some("Rust")))
+            .unwrap();
         assert_eq!(reply, "OK");
         // 写入后应能在内存中查到
-        let reply = server.execute(&cmd(Command::Get, Some("course"), None)).unwrap();
+        let reply = server
+            .execute(&cmd(Command::Get, Some("course"), None))
+            .unwrap();
         assert_eq!(reply, "VALUE course Rust");
     }
 
     #[test]
     fn get_missing_key_reports_error() {
         let mut server = make_server("get_missing");
-        let reply = server.execute(&cmd(Command::Get, Some("nope"), None)).unwrap();
+        let reply = server
+            .execute(&cmd(Command::Get, Some("nope"), None))
+            .unwrap();
         assert_eq!(reply, format!("ERROR {}", error::KEY_NOT_FOUND));
     }
 
     #[test]
     fn del_missing_key_reports_error_without_log() {
         let mut server = make_server("del_missing");
-        let reply = server.execute(&cmd(Command::Del, Some("nope"), None)).unwrap();
+        let reply = server
+            .execute(&cmd(Command::Del, Some("nope"), None))
+            .unwrap();
         assert_eq!(reply, format!("ERROR {}", error::KEY_NOT_FOUND));
     }
 
@@ -407,23 +412,29 @@ mod tests {
     #[test]
     fn recover_restores_written_data() {
         // 模拟：写入后创建新 Server（相当于重启），recover 应恢复数据
-        let path = std::env::temp_dir().join(format!(
-            "kvstore_ut_{}_recover.log",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("kvstore_ut_{}_recover.log", std::process::id()));
         let _ = std::fs::remove_file(&path);
 
         let mut server = Server::new(path.to_str().unwrap());
-        server.execute(&cmd(Command::Set, Some("k1"), Some("v1"))).unwrap();
-        server.execute(&cmd(Command::Set, Some("k2"), Some("v2"))).unwrap();
+        server
+            .execute(&cmd(Command::Set, Some("k1"), Some("v1")))
+            .unwrap();
+        server
+            .execute(&cmd(Command::Set, Some("k2"), Some("v2")))
+            .unwrap();
         drop(server); // 关闭（模拟服务器退出）
 
         // 重启：新 Server 实例 + recover
         let mut restarted = Server::new(path.to_str().unwrap());
         restarted.recover().unwrap();
-        let reply = restarted.execute(&cmd(Command::Get, Some("k1"), None)).unwrap();
+        let reply = restarted
+            .execute(&cmd(Command::Get, Some("k1"), None))
+            .unwrap();
         assert_eq!(reply, "VALUE k1 v1");
-        let reply = restarted.execute(&cmd(Command::Get, Some("k2"), None)).unwrap();
+        let reply = restarted
+            .execute(&cmd(Command::Get, Some("k2"), None))
+            .unwrap();
         assert_eq!(reply, "VALUE k2 v2");
 
         let _ = std::fs::remove_file(&path);
@@ -431,20 +442,22 @@ mod tests {
 
     #[test]
     fn recover_replays_delete() {
-        let path = std::env::temp_dir().join(format!(
-            "kvstore_ut_{}_recover_del.log",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("kvstore_ut_{}_recover_del.log", std::process::id()));
         let _ = std::fs::remove_file(&path);
 
         let mut server = Server::new(path.to_str().unwrap());
-        server.execute(&cmd(Command::Set, Some("k"), Some("v"))).unwrap();
+        server
+            .execute(&cmd(Command::Set, Some("k"), Some("v")))
+            .unwrap();
         server.execute(&cmd(Command::Del, Some("k"), None)).unwrap();
         drop(server);
 
         let mut restarted = Server::new(path.to_str().unwrap());
         restarted.recover().unwrap();
-        let reply = restarted.execute(&cmd(Command::Get, Some("k"), None)).unwrap();
+        let reply = restarted
+            .execute(&cmd(Command::Get, Some("k"), None))
+            .unwrap();
         assert_eq!(reply, format!("ERROR {}", error::KEY_NOT_FOUND));
         let _ = std::fs::remove_file(&path);
     }
@@ -493,7 +506,9 @@ mod tests {
         }
         // 最终值是 16 次写入中的某一次
         let mut guard = server.lock().unwrap();
-        let reply = guard.execute(&cmd(Command::Get, Some("shared"), None)).unwrap();
+        let reply = guard
+            .execute(&cmd(Command::Get, Some("shared"), None))
+            .unwrap();
         assert!(reply.starts_with("VALUE shared v"), "意外值: {}", reply);
     }
 }

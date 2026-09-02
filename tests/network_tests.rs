@@ -15,8 +15,8 @@ use std::thread;
 use std::time::Duration;
 
 use kvstore::parser;
-use kvstore::server::Server;
 use kvstore::protocol::error;
+use kvstore::server::Server;
 
 // ------------------------------------------------------------
 // 辅助：在随机端口启动一个测试服务器，返回地址
@@ -108,7 +108,10 @@ fn net_ping_pong() {
 fn net_status_empty() {
     let addr = start_test_server();
     let (mut reader, mut writer) = connect(&addr);
-    assert_eq!(send_cmd(&mut writer, &mut reader, "STATUS"), "STATUS count=0");
+    assert_eq!(
+        send_cmd(&mut writer, &mut reader, "STATUS"),
+        "STATUS count=0"
+    );
 }
 
 #[test]
@@ -128,7 +131,10 @@ fn net_set_and_get() {
     let (mut reader, mut writer) = connect(&addr);
 
     assert_eq!(send_cmd(&mut writer, &mut reader, "SET name Alice"), "OK");
-    assert_eq!(send_cmd(&mut writer, &mut reader, "GET name"), "VALUE name Alice");
+    assert_eq!(
+        send_cmd(&mut writer, &mut reader, "GET name"),
+        "VALUE name Alice"
+    );
 }
 
 #[test]
@@ -146,7 +152,10 @@ fn net_del_existing() {
 
     let _ = send_cmd(&mut writer, &mut reader, "SET k v");
     assert_eq!(send_cmd(&mut writer, &mut reader, "DEL k"), "OK");
-    assert_eq!(send_cmd(&mut writer, &mut reader, "GET k"), format!("ERROR {}", error::KEY_NOT_FOUND));
+    assert_eq!(
+        send_cmd(&mut writer, &mut reader, "GET k"),
+        format!("ERROR {}", error::KEY_NOT_FOUND)
+    );
 }
 
 #[test]
@@ -169,14 +178,20 @@ fn net_session_persistence() {
     assert_eq!(send_cmd(&mut writer, &mut reader, "SET a 1"), "OK");
     assert_eq!(send_cmd(&mut writer, &mut reader, "SET b 2"), "OK");
     assert_eq!(send_cmd(&mut writer, &mut reader, "SET c 3"), "OK");
-    assert_eq!(send_cmd(&mut writer, &mut reader, "STATUS"), "STATUS count=3");
+    assert_eq!(
+        send_cmd(&mut writer, &mut reader, "STATUS"),
+        "STATUS count=3"
+    );
     assert_eq!(send_cmd(&mut writer, &mut reader, "LIST"), "KEYS a b c");
 
     assert_eq!(send_cmd(&mut writer, &mut reader, "SET a 999"), "OK");
     assert_eq!(send_cmd(&mut writer, &mut reader, "GET a"), "VALUE a 999");
 
     assert_eq!(send_cmd(&mut writer, &mut reader, "DEL b"), "OK");
-    assert_eq!(send_cmd(&mut writer, &mut reader, "STATUS"), "STATUS count=2");
+    assert_eq!(
+        send_cmd(&mut writer, &mut reader, "STATUS"),
+        "STATUS count=2"
+    );
 }
 
 #[test]
@@ -197,12 +212,19 @@ fn net_batch_write_and_list() {
 
     for i in 0..50 {
         assert_eq!(
-            send_cmd(&mut writer, &mut reader, &format!("SET key{} value{}", i, i)),
+            send_cmd(
+                &mut writer,
+                &mut reader,
+                &format!("SET key{} value{}", i, i)
+            ),
             "OK"
         );
     }
 
-    assert_eq!(send_cmd(&mut writer, &mut reader, "STATUS"), "STATUS count=50");
+    assert_eq!(
+        send_cmd(&mut writer, &mut reader, "STATUS"),
+        "STATUS count=50"
+    );
 
     let list_resp = send_cmd(&mut writer, &mut reader, "LIST");
     assert!(list_resp.starts_with("KEYS "));
@@ -220,7 +242,11 @@ fn net_unknown_command_does_not_break() {
     let (mut reader, mut writer) = connect(&addr);
 
     let resp = send_cmd(&mut writer, &mut reader, "FOOBAR");
-    assert!(resp.starts_with("ERROR"), "未知命令应返回 ERROR，实际: {}", resp);
+    assert!(
+        resp.starts_with("ERROR"),
+        "未知命令应返回 ERROR，实际: {}",
+        resp
+    );
 
     assert_eq!(send_cmd(&mut writer, &mut reader, "PING"), "PONG");
     assert_eq!(send_cmd(&mut writer, &mut reader, "SET x 1"), "OK");
@@ -244,10 +270,17 @@ fn net_extra_arg_does_not_break() {
     let (mut reader, mut writer) = connect(&addr);
 
     let resp = send_cmd(&mut writer, &mut reader, "PING extra_arg");
-    assert!(resp.starts_with("ERROR"), "PING带多余参数应返回 ERROR，实际: {}", resp);
+    assert!(
+        resp.starts_with("ERROR"),
+        "PING带多余参数应返回 ERROR，实际: {}",
+        resp
+    );
 
     assert_eq!(send_cmd(&mut writer, &mut reader, "PING"), "PONG");
-    assert_eq!(send_cmd(&mut writer, &mut reader, "STATUS"), "STATUS count=0");
+    assert_eq!(
+        send_cmd(&mut writer, &mut reader, "STATUS"),
+        "STATUS count=0"
+    );
 }
 
 /// 连续多次出错，连接仍然可用
@@ -264,7 +297,10 @@ fn net_multiple_errors_still_works() {
     // 连接还在
     assert_eq!(send_cmd(&mut writer, &mut reader, "SET ok yes"), "OK");
     assert_eq!(send_cmd(&mut writer, &mut reader, "GET ok"), "VALUE ok yes");
-    assert_eq!(send_cmd(&mut writer, &mut reader, "STATUS"), "STATUS count=1");
+    assert_eq!(
+        send_cmd(&mut writer, &mut reader, "STATUS"),
+        "STATUS count=1"
+    );
 }
 
 // ============================================================
@@ -308,8 +344,14 @@ fn net_value_with_spaces() {
     let addr = start_test_server();
     let (mut reader, mut writer) = connect(&addr);
 
-    assert_eq!(send_cmd(&mut writer, &mut reader, "SET msg hello world"), "OK");
-    assert_eq!(send_cmd(&mut writer, &mut reader, "GET msg"), "VALUE msg hello world");
+    assert_eq!(
+        send_cmd(&mut writer, &mut reader, "SET msg hello world"),
+        "OK"
+    );
+    assert_eq!(
+        send_cmd(&mut writer, &mut reader, "GET msg"),
+        "VALUE msg hello world"
+    );
 }
 
 #[test]
@@ -317,8 +359,14 @@ fn net_value_with_chinese() {
     let addr = start_test_server();
     let (mut reader, mut writer) = connect(&addr);
 
-    assert_eq!(send_cmd(&mut writer, &mut reader, "SET greeting 你好世界"), "OK");
-    assert_eq!(send_cmd(&mut writer, &mut reader, "GET greeting"), "VALUE greeting 你好世界");
+    assert_eq!(
+        send_cmd(&mut writer, &mut reader, "SET greeting 你好世界"),
+        "OK"
+    );
+    assert_eq!(
+        send_cmd(&mut writer, &mut reader, "GET greeting"),
+        "VALUE greeting 你好世界"
+    );
 }
 
 #[test]
