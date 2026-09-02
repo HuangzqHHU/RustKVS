@@ -82,6 +82,17 @@ fn index_page(server: &mut Server, flash: Option<&str>) -> String {
         r#"<!DOCTYPE html>
 <html lang="zh">
 <head><meta charset="utf-8"><title>kvstore Web 管理</title>
+<script>
+// 每 3 秒自动刷新页面（数据/TTL 实时更新）；
+// 输入框聚焦（正在输入命令）时暂停刷新，避免打断输入。
+let paused = false;
+const input = document.getElementById('cmd');
+if (input) {{
+    input.addEventListener('focus', () => {{ paused = true; }});
+    input.addEventListener('blur', () => {{ paused = false; }});
+}}
+setInterval(() => {{ if (!paused) location.reload(); }}, 3000);
+</script>
 <style>
 body {{ font-family: "Microsoft YaHei", sans-serif; margin: 30px; }}
 table {{ border-collapse: collapse; margin: 15px 0; }}
@@ -98,7 +109,7 @@ button {{ padding: 6px 18px; }}
 <table><tr><th>Key</th><th>Value</th></tr>{}</table>
 <h2>执行命令</h2>
 <form method="post" action="/cmd">
-  <input type="text" name="command" placeholder="例如: SET course Rust 5" autofocus>
+  <input type="text" name="command" id="cmd" placeholder="例如: SET course Rust 5" autofocus>
   <button type="submit">执行</button>
 </form>
 <p style="color:#888;">支持: SET key value [ttl] / GET key / DEL key / LIST / STATUS / PING（EXIT 不可用）</p>
