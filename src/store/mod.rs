@@ -44,7 +44,9 @@ pub struct KVStore {
 impl KVStore {
     /// 创建一个空存储
     pub fn new() -> Self {
-        KVStore { data: HashMap::new() }
+        KVStore {
+            data: HashMap::new(),
+        }
     }
 
     /// 校验键合法性：非空、不含空白字符（空格/制表符）、不含换行
@@ -81,7 +83,8 @@ impl KVStore {
         Self::validate_key(key)?;
         self.sweep_expired();
         let expire_at = ttl.map(|secs| Instant::now() + Duration::from_secs(secs));
-        self.data.insert(key.to_string(), (value.to_string(), expire_at));
+        self.data
+            .insert(key.to_string(), (value.to_string(), expire_at));
         Ok(())
     }
 
@@ -215,7 +218,10 @@ mod tests {
     #[test]
     fn reject_empty_key() {
         let mut store = KVStore::new();
-        assert!(matches!(store.set("", "v", None), Err(StoreError::InvalidKey(_))));
+        assert!(matches!(
+            store.set("", "v", None),
+            Err(StoreError::InvalidKey(_))
+        ));
         assert!(matches!(store.get(""), Err(StoreError::InvalidKey(_))));
         assert!(matches!(store.delete(""), Err(StoreError::InvalidKey(_))));
     }
@@ -223,14 +229,20 @@ mod tests {
     #[test]
     fn reject_key_with_space() {
         let mut store = KVStore::new();
-        assert!(matches!(store.set("a b", "v", None), Err(StoreError::InvalidKey(_))));
+        assert!(matches!(
+            store.set("a b", "v", None),
+            Err(StoreError::InvalidKey(_))
+        ));
         assert!(matches!(store.get("a b"), Err(StoreError::InvalidKey(_))));
     }
 
-     #[test]
+    #[test]
     fn reject_key_with_newline() {
         let mut store = KVStore::new();
-        assert!(matches!(store.set("a\nb", "v", None), Err(StoreError::InvalidKey(_))));
+        assert!(matches!(
+            store.set("a\nb", "v", None),
+            Err(StoreError::InvalidKey(_))
+        ));
     }
 
     #[test]

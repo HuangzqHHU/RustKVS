@@ -12,8 +12,8 @@ use std::thread;
 use std::time::Duration;
 
 use kvstore::parser;
-use kvstore::server::Server;
 use kvstore::protocol::error;
+use kvstore::server::Server;
 
 // ------------------------------------------------------------
 // 辅助：启动并发测试服务器（使用 Server 结构体）
@@ -139,7 +139,10 @@ fn concurrent_multi_client_write_different_keys() {
     }
 
     let (mut reader, mut writer) = connect(&addr);
-    assert!(send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=100 "), "STATUS 输出不符预期");
+    assert!(
+        send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=100 "),
+        "STATUS 输出不符预期"
+    );
 }
 
 #[test]
@@ -179,7 +182,11 @@ fn concurrent_write_same_key_no_panic() {
             let (mut reader, mut writer) = connect(&addr);
             for _ in 0..10 {
                 assert_eq!(
-                    send_cmd(&mut writer, &mut reader, &format!("SET shared_key {}", value)),
+                    send_cmd(
+                        &mut writer,
+                        &mut reader,
+                        &format!("SET shared_key {}", value)
+                    ),
                     "OK"
                 );
             }
@@ -193,8 +200,15 @@ fn concurrent_write_same_key_no_panic() {
 
     let (mut reader, mut writer) = connect(&addr);
     let resp = send_cmd(&mut writer, &mut reader, "GET shared_key");
-    assert!(resp.starts_with("VALUE shared_key "), "应返回 VALUE，实际: {}", resp);
-    assert!(send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=1 "), "STATUS 输出不符预期");
+    assert!(
+        resp.starts_with("VALUE shared_key "),
+        "应返回 VALUE，实际: {}",
+        resp
+    );
+    assert!(
+        send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=1 "),
+        "STATUS 输出不符预期"
+    );
 }
 
 // ============================================================
@@ -208,7 +222,11 @@ fn concurrent_read_write_mixed() {
     {
         let (mut reader, mut writer) = connect(&addr);
         for i in 0..20 {
-            send_cmd(&mut writer, &mut reader, &format!("SET key{} value{}", i, i));
+            send_cmd(
+                &mut writer,
+                &mut reader,
+                &format!("SET key{} value{}", i, i),
+            );
         }
     }
 
@@ -238,7 +256,8 @@ fn concurrent_read_write_mixed() {
                 let resp = send_cmd(&mut writer, &mut reader, &format!("GET {}", key));
                 assert!(
                     resp.starts_with("VALUE ") || resp.starts_with("ERROR"),
-                    "响应格式不对: {}", resp
+                    "响应格式不对: {}",
+                    resp
                 );
             }
         });
@@ -274,7 +293,8 @@ fn concurrent_delete_same_key() {
             let resp = send_cmd(&mut writer, &mut reader, "DEL target");
             assert!(
                 resp == "OK" || resp.starts_with("ERROR"),
-                "DEL 响应不对: {}", resp
+                "DEL 响应不对: {}",
+                resp
             );
         });
         handles.push(handle);
@@ -310,8 +330,15 @@ fn concurrent_counter_no_crash() {
             for _ in 0..100 {
                 let resp = send_cmd(&mut writer, &mut reader, "GET counter");
                 if resp.starts_with("VALUE counter ") {
-                    let val: i32 = resp.trim_start_matches("VALUE counter ").parse().unwrap_or(0);
-                    send_cmd(&mut writer, &mut reader, &format!("SET counter {}", val + 1));
+                    let val: i32 = resp
+                        .trim_start_matches("VALUE counter ")
+                        .parse()
+                        .unwrap_or(0);
+                    send_cmd(
+                        &mut writer,
+                        &mut reader,
+                        &format!("SET counter {}", val + 1),
+                    );
                 }
             }
         });
@@ -359,7 +386,10 @@ fn concurrent_50_clients_stress() {
                 send_cmd(&mut writer, &mut reader, &format!("GET {}", key)),
                 format!("VALUE {} data", key)
             );
-            assert_eq!(send_cmd(&mut writer, &mut reader, &format!("DEL {}", key)), "OK");
+            assert_eq!(
+                send_cmd(&mut writer, &mut reader, &format!("DEL {}", key)),
+                "OK"
+            );
 
             let status = send_cmd(&mut writer, &mut reader, "STATUS");
             assert!(status.starts_with("STATUS count="));
@@ -372,7 +402,10 @@ fn concurrent_50_clients_stress() {
     }
 
     let (mut reader, mut writer) = connect(&addr);
-    assert!(send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=0 "), "STATUS 输出不符预期");
+    assert!(
+        send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=0 "),
+        "STATUS 输出不符预期"
+    );
 }
 
 // ============================================================
@@ -418,5 +451,8 @@ fn concurrent_list_consistent() {
     }
 
     let (mut reader, mut writer) = connect(&addr);
-    assert!(send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=200 "), "STATUS 输出不符预期");
+    assert!(
+        send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=200 "),
+        "STATUS 输出不符预期"
+    );
 }

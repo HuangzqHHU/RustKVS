@@ -108,7 +108,10 @@ fn net_ping_pong() {
 fn net_status_empty() {
     let addr = start_test_server();
     let (mut reader, mut writer) = connect(&addr);
-    assert!(send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=0 "), "STATUS 输出不符预期");
+    assert!(
+        send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=0 "),
+        "STATUS 输出不符预期"
+    );
 }
 
 #[test]
@@ -175,14 +178,20 @@ fn net_session_persistence() {
     assert_eq!(send_cmd(&mut writer, &mut reader, "SET a 1"), "OK");
     assert_eq!(send_cmd(&mut writer, &mut reader, "SET b 2"), "OK");
     assert_eq!(send_cmd(&mut writer, &mut reader, "SET c 3"), "OK");
-    assert!(send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=3 "), "STATUS 输出不符预期");
+    assert!(
+        send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=3 "),
+        "STATUS 输出不符预期"
+    );
     assert_eq!(send_cmd(&mut writer, &mut reader, "LIST"), "KEYS a b c");
 
     assert_eq!(send_cmd(&mut writer, &mut reader, "SET a 999"), "OK");
     assert_eq!(send_cmd(&mut writer, &mut reader, "GET a"), "VALUE a 999");
 
     assert_eq!(send_cmd(&mut writer, &mut reader, "DEL b"), "OK");
-    assert!(send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=2 "), "STATUS 输出不符预期");
+    assert!(
+        send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=2 "),
+        "STATUS 输出不符预期"
+    );
 }
 
 #[test]
@@ -212,7 +221,10 @@ fn net_batch_write_and_list() {
         );
     }
 
-    assert!(send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=50 "), "STATUS 输出不符预期");
+    assert!(
+        send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=50 "),
+        "STATUS 输出不符预期"
+    );
 
     let list_resp = send_cmd(&mut writer, &mut reader, "LIST");
     assert!(list_resp.starts_with("KEYS "));
@@ -265,7 +277,10 @@ fn net_extra_arg_does_not_break() {
     );
 
     assert_eq!(send_cmd(&mut writer, &mut reader, "PING"), "PONG");
-    assert!(send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=0 "), "STATUS 输出不符预期");
+    assert!(
+        send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=0 "),
+        "STATUS 输出不符预期"
+    );
 }
 
 /// 连续多次出错，连接仍然可用
@@ -282,7 +297,10 @@ fn net_multiple_errors_still_works() {
     // 连接还在
     assert_eq!(send_cmd(&mut writer, &mut reader, "SET ok yes"), "OK");
     assert_eq!(send_cmd(&mut writer, &mut reader, "GET ok"), "VALUE ok yes");
-    assert!(send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=1 "), "STATUS 输出不符预期");
+    assert!(
+        send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=1 "),
+        "STATUS 输出不符预期"
+    );
 }
 
 // ============================================================
