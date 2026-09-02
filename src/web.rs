@@ -162,7 +162,7 @@ pub fn http_response(status: u16, content_type: &str, body: &str) -> String {
     };
     let len = body.as_bytes().len();
     format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nPragma: no-cache\r\nExpires: 0\r\nConnection: close\r\n\r\n{}",
         status, reason, content_type, len, body
     )
 }

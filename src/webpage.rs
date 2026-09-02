@@ -78,21 +78,16 @@ fn index_page(server: &mut Server, flash: Option<&str>) -> String {
         None => String::new(),
     };
 
+    // 页面更新时间戳（秒）：手动刷新(F5)后数字变化 = 确认拿到服务器最新页面
+    let updated_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
     let body = format!(
         r#"<!DOCTYPE html>
 <html lang="zh">
 <head><meta charset="utf-8"><title>kvstore Web 管理</title>
-<script>
-// 每 3 秒自动刷新页面（数据/TTL 实时更新）；
-// 输入框聚焦（正在输入命令）时暂停刷新，避免打断输入。
-let paused = false;
-const input = document.getElementById('cmd');
-if (input) {{
-    input.addEventListener('focus', () => {{ paused = true; }});
-    input.addEventListener('blur', () => {{ paused = false; }});
-}}
-setInterval(() => {{ if (!paused) location.reload(); }}, 3000);
-</script>
 <style>
 body {{ font-family: "Microsoft YaHei", sans-serif; margin: 30px; }}
 table {{ border-collapse: collapse; margin: 15px 0; }}
@@ -104,6 +99,7 @@ button {{ padding: 6px 18px; }}
 <body>
 <h1>kvstore Web 管理</h1>
 <p>{}</p>
+<p style="color:#888;">更新时间: {}（按 F5 手动刷新后此数字会变化）</p>
 {}
 <h2>数据表</h2>
 <table><tr><th>Key</th><th>Value</th></tr>{}</table>
@@ -115,6 +111,7 @@ button {{ padding: 6px 18px; }}
 <p style="color:#888;">支持: SET key value [ttl] / GET key / DEL key / LIST / STATUS / PING（EXIT 不可用）</p>
 </body></html>"#,
         web::html_escape(&status),
+        updated_at,
         flash_html,
         if rows.is_empty() { "<tr><td colspan=2>（空）</td></tr>".to_string() } else { rows }
     );
