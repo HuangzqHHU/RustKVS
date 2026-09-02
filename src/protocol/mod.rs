@@ -10,7 +10,7 @@
 /// 支持的命令（第1天定稿；成员C据此实现解析器）
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
-    /// SET key value —— 写入或覆盖键值
+    /// SET key value [ttl] —— 写入或覆盖键值（可选 ttl：正整数秒，到期后键视为不存在）
     Set,
     /// GET key —— 查询键值
     Get,
@@ -18,7 +18,7 @@ pub enum Command {
     Del,
     /// LIST —— 列出全部键
     List,
-    /// STATUS —— 查看数据数量与运行状态
+    /// STATUS —— 查看数据数量、连接数、运行时长与命令总数
     Status,
     /// PING —— 检查连接
     Ping,
@@ -78,6 +78,8 @@ pub mod error {
     pub const INVALID_KEY: &str = "非法键";
     /// 消息超长
     pub const MSG_TOO_LONG: &str = "消息超长";
+    /// TTL 不合法（非数字、0、负数、超长）
+    pub const INVALID_TTL: &str = "无效的TTL";
 }
 
 /// 默认监听地址与端口（第3天起使用，成员A负责）

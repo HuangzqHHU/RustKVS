@@ -139,7 +139,7 @@ fn concurrent_multi_client_write_different_keys() {
     }
 
     let (mut reader, mut writer) = connect(&addr);
-    assert_eq!(send_cmd(&mut writer, &mut reader, "STATUS"), "STATUS count=100");
+    assert!(send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=100 "), "STATUS 输出不符预期");
 }
 
 #[test]
@@ -194,7 +194,7 @@ fn concurrent_write_same_key_no_panic() {
     let (mut reader, mut writer) = connect(&addr);
     let resp = send_cmd(&mut writer, &mut reader, "GET shared_key");
     assert!(resp.starts_with("VALUE shared_key "), "应返回 VALUE，实际: {}", resp);
-    assert_eq!(send_cmd(&mut writer, &mut reader, "STATUS"), "STATUS count=1");
+    assert!(send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=1 "), "STATUS 输出不符预期");
 }
 
 // ============================================================
@@ -372,7 +372,7 @@ fn concurrent_50_clients_stress() {
     }
 
     let (mut reader, mut writer) = connect(&addr);
-    assert_eq!(send_cmd(&mut writer, &mut reader, "STATUS"), "STATUS count=0");
+    assert!(send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=0 "), "STATUS 输出不符预期");
 }
 
 // ============================================================
@@ -418,5 +418,5 @@ fn concurrent_list_consistent() {
     }
 
     let (mut reader, mut writer) = connect(&addr);
-    assert_eq!(send_cmd(&mut writer, &mut reader, "STATUS"), "STATUS count=200");
+    assert!(send_cmd(&mut writer, &mut reader, "STATUS").starts_with("STATUS count=200 "), "STATUS 输出不符预期");
 }
