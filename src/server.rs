@@ -69,6 +69,15 @@ impl Server {
     pub fn execute(&mut self, parsed: &parser::ParsedCommand) -> Option<String> {
         // 命令计数（STATUS 显示用）
         self.commands.fetch_add(1, Ordering::SeqCst);
+        self.execute_inner(parsed)
+    }
+
+    /// 执行网页展示所需的只读命令，不计入用户命令数。
+    pub(crate) fn execute_without_count(&mut self, parsed: &parser::ParsedCommand) -> Option<String> {
+        self.execute_inner(parsed)
+    }
+
+    fn execute_inner(&mut self, parsed: &parser::ParsedCommand) -> Option<String> {
         let cmd = parsed.command;
         let reply = match cmd {
             Command::Set => {
