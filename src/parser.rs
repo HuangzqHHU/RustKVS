@@ -8,7 +8,7 @@
 
 use crate::protocol::{Command, MAX_MSG_LEN, error};
 use std::fmt;
-
+const MAX_TTL_SECONDS: u64 = 86_400 * 365;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
     pub message: String,
@@ -27,6 +27,7 @@ pub struct ParsedCommand {
     pub command: Command,
     pub key: Option<String>,
     pub value: Option<String>,
+    pub ttl: Option<u64>,
 }
 
 // 从一段文本中取出第一个单词，返回：
@@ -88,7 +89,59 @@ fn check_no_argument(rest: &str, command_name: &str) -> Result<(), ParseError> {
 
     Ok(())
 }
+fn parse_value_and_ttl(value_part: &str) -> Result<(String, Option<u64>), ParseError> {
+    let value_part = value_part.trim();
 
+    if value_part.is_empty() {
+        return Err(ParseError {
+            message: format!("{}：SET 需要 value", error::MISSING_ARG),
+        });
+    }
+
+    // 只有最后一个字段像 TTL 时，才把它当作 TTL。
+    // 这样可以保留 value 中的普通空格。
+    let split_position = value_part.rfind(char::is_whitespace);
+
+    let Some(position) = split_position else {
+        return Ok((value_part.to_string(), None));
+    };
+
+    let value = value_part[..position].trim_end();
+    let candidate = value_part[position..].trim();
+
+    // 例如：SET key hello world
+    // world 不是数字，因此整体作为 value。
+    let looks_like_ttl =
+        candidate.starts_with('-') || candidate.chars().all(|c| c.is_ascii_digit());
+
+    if !looks_like_ttl {
+        return Ok((value_part.to_string(), None));
+    }
+
+    if value.is_empty() {
+        return Err(ParseError {
+            message: format!("{}：SET 需要 value", error::MISSING_ARG),
+        });
+    }
+
+    let ttl = candidate.parse::<u64>().map_err(|_| ParseError {
+        message: format!("{}：TTL 必须是正整数", error::INVALID_KEY),
+    })?;
+
+    if ttl == 0 {
+        return Err(ParseError {
+            message: "TTL 必须大于 0".to_string(),
+        });
+    }
+
+    if ttl > MAX_TTL_SECONDS {
+        return Err(ParseError {
+            message: format!("TTL 不能超过 {} 秒", MAX_TTL_SECONDS),
+        });
+    }
+
+    Ok((value.to_string(), Some(ttl)))
+}
 // 这是你的主要函数：把一行用户输入转换为 ParsedCommand。
 pub fn parse_command(line: &str) -> Result<ParsedCommand, ParseError> {
     if line.as_bytes().len() > MAX_MSG_LEN {
@@ -127,19 +180,13 @@ pub fn parse_command(line: &str) -> Result<ParsedCommand, ParseError> {
 
             validate_key(key)?;
 
-            // 第二个空格后的所有文字都属于 value，因此 value 可以含空格。
-            let value = value_part.trim_start();
-
-            if value.is_empty() {
-                return Err(ParseError {
-                    message: format!("{}：SET 需要 value", error::MISSING_ARG),
-                });
-            }
+            let (value, ttl) = parse_value_and_ttl(value_part)?;
 
             Ok(ParsedCommand {
                 command: Command::Set,
                 key: Some(key.to_string()),
-                value: Some(value.to_string()),
+                value: Some(value),
+                ttl,
             })
         }
 
@@ -147,12 +194,14 @@ pub fn parse_command(line: &str) -> Result<ParsedCommand, ParseError> {
             command: Command::Get,
             key: Some(parse_one_key(rest, "GET")?),
             value: None,
+            ttl: None,
         }),
 
         Command::Del => Ok(ParsedCommand {
             command: Command::Del,
             key: Some(parse_one_key(rest, "DEL")?),
             value: None,
+            ttl: None,
         }),
 
         Command::List => {
@@ -162,6 +211,7 @@ pub fn parse_command(line: &str) -> Result<ParsedCommand, ParseError> {
                 command: Command::List,
                 key: None,
                 value: None,
+                ttl: None,
             })
         }
 
@@ -172,6 +222,7 @@ pub fn parse_command(line: &str) -> Result<ParsedCommand, ParseError> {
                 command: Command::Status,
                 key: None,
                 value: None,
+                ttl: None,
             })
         }
 
@@ -182,6 +233,7 @@ pub fn parse_command(line: &str) -> Result<ParsedCommand, ParseError> {
                 command: Command::Ping,
                 key: None,
                 value: None,
+                ttl: None,
             })
         }
 
@@ -192,6 +244,7 @@ pub fn parse_command(line: &str) -> Result<ParsedCommand, ParseError> {
                 command: Command::Exit,
                 key: None,
                 value: None,
+                ttl: None,
             })
         }
     }
@@ -261,5 +314,58 @@ mod tests {
         let error = parse_command("HELLO").unwrap_err();
 
         assert!(error.message.contains("未知命令"));
+    }
+    #[test]
+    fn set_with_ttl() {
+        let result = parse_command("SET course Rust 5").unwrap();
+
+        assert_eq!(result.command, Command::Set);
+        assert_eq!(result.key, Some("course".to_string()));
+        assert_eq!(result.value, Some("Rust".to_string()));
+        assert_eq!(result.ttl, Some(5));
+    }
+
+    #[test]
+    fn set_without_ttl_is_permanent() {
+        let result = parse_command("SET course Rust").unwrap();
+
+        assert_eq!(result.value, Some("Rust".to_string()));
+        assert_eq!(result.ttl, None);
+    }
+
+    #[test]
+    fn set_value_can_contain_spaces_without_ttl() {
+        let result = parse_command("SET sentence Rust is easy").unwrap();
+
+        assert_eq!(result.value, Some("Rust is easy".to_string()));
+        assert_eq!(result.ttl, None);
+    }
+
+    #[test]
+    fn ttl_zero_is_rejected() {
+        let error = parse_command("SET key value 0").unwrap_err();
+
+        assert!(error.message.contains("TTL"));
+    }
+
+    #[test]
+    fn ttl_negative_is_rejected() {
+        let error = parse_command("SET key value -1").unwrap_err();
+
+        assert!(error.message.contains("TTL"));
+    }
+
+    #[test]
+    fn ttl_too_large_is_rejected() {
+        let error = parse_command("SET key value 999999999999").unwrap_err();
+
+        assert!(error.message.contains("TTL"));
+    }
+
+    #[test]
+    fn non_set_commands_have_no_ttl() {
+        let result = parse_command("GET key").unwrap();
+
+        assert_eq!(result.ttl, None);
     }
 }
