@@ -132,20 +132,34 @@ impl Server {
                     format!("KEYS {}", keys.join(" "))
                 }
             }
-            Command::Status => {
-                let count = self.store.len();
-                let connections = self.connections.load(Ordering::SeqCst);
-                let uptime = self.started_at.elapsed().as_secs();
-                let commands = self.commands.load(Ordering::SeqCst);
-                format!(
-                    "STATUS count={} connections={} uptime={}s commands={}",
-                    count, connections, uptime, commands
-                )
-            }
+            Command::Status => self.status_snapshot(),
             Command::Ping => "PONG".to_string(),
             Command::Exit => return None, // 收到 EXIT，退出服务器
         };
         Some(reply)
+    }
+
+    /// 只读快照：当前状态文本（供 Web 页面渲染等内部读取使用，**不增加 commands 计数**）
+    pub fn status_snapshot(&self) -> String {
+        let count = self.store.len();
+        let connections = self.connections.load(Ordering::SeqCst);
+        let uptime = self.started_at.elapsed().as_secs();
+        let commands = self.commands.load(Ordering::SeqCst);
+        format!(
+            "STATUS count={} connections={} uptime={}s commands={}",
+            count, connections, uptime, commands
+        )
+    }
+
+    /// 只读快照：全部未过期键值对（供 Web 页面渲染使用，**不增加 commands 计数**）
+    pub fn key_values(&self) -> Vec<(String, String)> {
+        let mut rows = Vec::new();
+        for key in self.store.list() {
+            if let Ok(Some(value)) = self.store.get(&key) {
+                rows.push((key, value.to_string()));
+            }
+        }
+        rows
     }
 }
 

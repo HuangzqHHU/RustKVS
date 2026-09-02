@@ -48,28 +48,21 @@ fn run_line(server: &mut Server, line: &str) -> String {
 }
 
 /// 主页：状态行 + 键值表 + 命令表单 + 执行结果（flash）
+///
+/// 注意：页面渲染使用 Server 的只读快照（status_snapshot / key_values），
+/// 不执行 execute——避免页面刷新把内部读取计入 commands 计数。
 fn index_page(server: &mut Server, flash: Option<&str>) -> String {
-    let status = run_line(server, "STATUS");
+    // 只读状态行（不增加 commands 计数）
+    let status = server.status_snapshot();
 
-    // 数据表：LIST 拿全部键，逐个 GET 取值
-    let list_reply = run_line(server, "LIST");
-    let keys: Vec<&str> = match list_reply.strip_prefix("KEYS") {
-        Some(rest) => rest.trim().split(' ').filter(|s| !s.is_empty()).collect(),
-        None => Vec::new(),
-    };
+    // 只读键值数据（不增加 commands 计数）
+    let rows_data = server.key_values();
     let mut rows = String::new();
-    for key in keys {
-        let reply = run_line(server, &format!("GET {}", key));
-        // GET 响应形如 "VALUE <key> <value>"；取 value 部分
-        let value = reply
-            .strip_prefix("VALUE")
-            .and_then(|r| r.trim().split_once(' '))
-            .map(|(_, v)| v.to_string())
-            .unwrap_or_else(|| reply.clone()); // 可能是过期/错误等
+    for (key, value) in &rows_data {
         rows.push_str(&format!(
             "<tr><td>{}</td><td>{}</td></tr>",
             web::html_escape(key),
-            web::html_escape(&value)
+            web::html_escape(value)
         ));
     }
 
