@@ -114,8 +114,9 @@ impl Persistence {
             }
             match LogRecord::from_line(&line) {
                 Some(LogRecord::Set { key, value }) => {
+                    // 日志不含 TTL，重放时一律按永久键恢复
                     store
-                        .set(&key, &value)
+                        .set(&key, &value, None)
                         .map_err(|e| format!("日志文件第 {} 行非法: {}", idx + 1, e))?;
                 }
                 Some(LogRecord::Del { key }) => {

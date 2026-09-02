@@ -21,6 +21,7 @@ use crate::protocol::{DEFAULT_DATA_FILE, DEFAULT_PORT};
 use crate::store::KVStore;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// 服务器：封装内存存储与持久化，execute 为统一执行入口。
@@ -30,6 +31,12 @@ use std::sync::{Arc, Mutex};
 pub struct Server {
     store: KVStore,
     persistence: Persistence,
+    /// 服务器启动时刻（用于 STATUS 显示运行时长）
+    started_at: std::time::Instant,
+    /// 当前连接数（原子计数，由 handle_connection 进出时更新）
+    connections: AtomicUsize,
+    /// 累计处理的命令数（原子计数，每次 execute +1）
+    commands: AtomicU64,
 }
 
 impl Server {
@@ -38,6 +45,9 @@ impl Server {
         Server {
             store: KVStore::new(),
             persistence: Persistence::new(data_file),
+            started_at: std::time::Instant::now(),
+            connections: AtomicUsize::new(0),
+            commands: AtomicU64::new(0),
         }
     }
 
@@ -57,6 +67,8 @@ impl Server {
     /// 并发安全：本方法整体在调用方的 Mutex 锁内执行，写日志+更新内存不可分割。
     /// 所有错误转成 "ERROR <说明>" 文本返回，绝不 panic，保证循环继续。
     pub fn execute(&mut self, parsed: &parser::ParsedCommand) -> Option<String> {
+        // 命令计数（STATUS 显示用）
+        self.commands.fetch_add(1, Ordering::SeqCst);
         let cmd = parsed.command;
         let reply = match cmd {
             Command::Set => {
@@ -120,7 +132,16 @@ impl Server {
                     format!("KEYS {}", keys.join(" "))
                 }
             }
-            Command::Status => format!("STATUS count={}", self.store.len()),
+            Command::Status => {
+                let count = self.store.len();
+                let connections = self.connections.load(Ordering::SeqCst);
+                let uptime = self.started_at.elapsed().as_secs();
+                let commands = self.commands.load(Ordering::SeqCst);
+                format!(
+                    "STATUS count={} connections={} uptime={}s commands={}",
+                    count, connections, uptime, commands
+                )
+            }
             Command::Ping => "PONG".to_string(),
             Command::Exit => return None, // 收到 EXIT，退出服务器
         };
@@ -271,6 +292,13 @@ fn handle_connection(stream: TcpStream, server: Arc<Mutex<Server>>) {
     let mut reader = BufReader::new(read_stream);
     let mut writer = stream;
 
+    // 连接进入：连接数 +1（短暂加锁，仅更新原子计数）
+    server
+        .lock()
+        .expect("服务器锁中毒")
+        .connections
+        .fetch_add(1, Ordering::SeqCst);
+
     loop {
         let mut line = String::new();
         match reader.read_line(&mut line) {
@@ -310,6 +338,13 @@ fn handle_connection(stream: TcpStream, server: Arc<Mutex<Server>>) {
             break;
         }
     }
+
+    // 连接离开：连接数 -1（所有 break 路径都会走到这里）
+    server
+        .lock()
+        .expect("服务器锁中毒")
+        .connections
+        .fetch_sub(1, Ordering::SeqCst);
 }
 
 /// 向客户端写入一行响应（自动补换行符）并刷新；失败返回 Err（客户端可能已断开）
@@ -353,7 +388,8 @@ mod tests {
     fn status_reports_count() {
         let mut server = make_server("status");
         let reply = server.execute(&cmd(Command::Status, None, None)).unwrap();
-        assert_eq!(reply, "STATUS count=0");
+        // 新格式：STATUS count=N connections=M uptime=Ss commands=C
+        assert!(reply.starts_with("STATUS count=0 "), "意外输出: {}", reply);
     }
 
     #[test]
@@ -483,7 +519,7 @@ mod tests {
         // 8 个键全部写入成功
         let mut guard = server.lock().unwrap();
         let reply = guard.execute(&cmd(Command::Status, None, None)).unwrap();
-        assert_eq!(reply, "STATUS count=8");
+        assert!(reply.starts_with("STATUS count=8 "), "意外输出: {}", reply);
     }
 
     /// 第4天并发安全测试：多线程同时写同一键，最终值一定是某一次写入（不损坏、不 panic）
