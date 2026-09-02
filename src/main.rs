@@ -5,8 +5,7 @@
 
 use kvstore::client;
 use kvstore::protocol::DEFAULT_ADDR;
-use kvstore::server;
-use kvstore::store::KVStore;
+use kvstore::server::{self, Server};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -26,10 +25,12 @@ fn main() {
 
 /// 本地客户端（第2天模式：不经网络，复用 server 的执行逻辑；EXIT 由 REPL 处理）
 ///
-/// 第3天起默认使用 TCP 客户端（成员C的 run_tcp_repl），本函数仅 --local 时保留。
+/// 数据写临时文件，避免污染服务器数据文件；第3天起默认使用 TCP 客户端。
 fn run_local_client() {
-    let mut store = KVStore::new();
-    client::run_local_repl(|parsed| match server::execute(&mut store, &parsed) {
+    // 临时数据文件，防止本地调试污染 data/kv.log
+    let path = std::env::temp_dir().join("kvstore_local_client.log");
+    let mut server = Server::new(path.to_str().unwrap());
+    client::run_local_repl(|parsed| match server.execute(&parsed) {
         Some(reply) => reply,
         None => "BYE".to_string(),
     });
@@ -54,14 +55,13 @@ fn print_help() {
     print_version();
     println!();
     println!("用法:");
-    println!("  cargo run -- server          启动服务器（第3天：网络模式，监听 {}）", DEFAULT_ADDR);
+    println!("  cargo run -- server [--port 7878] [--data data/kv.log]  启动服务器（网络模式，多客户端并发）");
     println!("  cargo run -- server --local  启动服务器（本地模式，无网络）");
-    println!("  cargo run -- client          启动客户端（第3天：连接服务器）");
+    println!("  cargo run -- client [--port 7878]  启动客户端（连接服务器）");
     println!("  cargo run -- client --local  启动客户端（本地模式，无网络）");
     println!("  cargo run -- --version       显示版本与模块清单");
     println!("  cargo run -- --help          显示本帮助");
     println!();
     println!("开发计划:");
-    println!("  第3天: TCP网络通信 + 持久化");
     println!("  第4天: 多客户端并发 + 测试 + 演示");
 }

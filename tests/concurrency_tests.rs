@@ -12,27 +12,34 @@ use std::thread;
 use std::time::Duration;
 
 use kvstore::parser;
-use kvstore::server::execute;
-use kvstore::store::KVStore;
+use kvstore::server::Server;
 use kvstore::protocol::error;
 
 // ------------------------------------------------------------
-// 辅助：启动并发测试服务器
+// 辅助：启动并发测试服务器（使用 Server 结构体）
 // ------------------------------------------------------------
 
 fn start_concurrent_server() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap().to_string();
 
-    let store = Arc::new(Mutex::new(KVStore::new()));
+    // 用临时数据文件，避免测试间互相干扰
+    let data_file = format!(
+        "{}/kvstore_concurrent_test_{}.log",
+        std::env::temp_dir().to_string_lossy(),
+        std::process::id()
+    );
+    let _ = std::fs::remove_file(&data_file);
+
+    let server = Arc::new(Mutex::new(Server::new(&data_file)));
 
     thread::spawn(move || {
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => {
-                    let store_clone = Arc::clone(&store);
+                    let server_clone = Arc::clone(&server);
                     thread::spawn(move || {
-                        handle_conn(stream, store_clone);
+                        handle_conn(stream, server_clone);
                     });
                 }
                 Err(_) => break,
@@ -44,7 +51,7 @@ fn start_concurrent_server() -> String {
     addr
 }
 
-fn handle_conn(stream: TcpStream, store: Arc<Mutex<KVStore>>) {
+fn handle_conn(stream: TcpStream, server: Arc<Mutex<Server>>) {
     let read_stream = stream.try_clone().unwrap();
     let mut reader = BufReader::new(read_stream);
     let mut writer = stream;
@@ -70,19 +77,18 @@ fn handle_conn(stream: TcpStream, store: Arc<Mutex<KVStore>>) {
             }
         };
 
+        // 加锁执行 Server::execute
         let reply = {
-            let mut store_guard = store.lock().unwrap();
-            execute(&mut store_guard, &parsed)
-        };
-
-        match reply {
-            Some(reply_text) => {
-                let _ = writer.write_all(reply_text.as_bytes());
-                let _ = writer.write_all(b"\n");
-                let _ = writer.flush();
+            let mut guard = server.lock().expect("服务器锁中毒");
+            match guard.execute(&parsed) {
+                Some(r) => r,
+                None => break, // EXIT
             }
-            None => break,
-        }
+        }; // 锁释放
+
+        let _ = writer.write_all(reply.as_bytes());
+        let _ = writer.write_all(b"\n");
+        let _ = writer.flush();
     }
 }
 
