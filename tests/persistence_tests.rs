@@ -9,8 +9,8 @@
 //! 这里写的是集成视角的测试——把 Persistence 和 KVStore 合起来测，
 //! 模拟真实的"写入→关服→重启→查询"生命周期。
 
+use kvstore::persistence::{LogRecord, Persistence};
 use kvstore::store::KVStore;
-use kvstore::persistence::{Persistence, LogRecord};
 
 use std::path::{Path, PathBuf};
 
@@ -48,7 +48,8 @@ fn recover_single_set() {
         p.append(&LogRecord::Set {
             key: "name".into(),
             value: "Alice".into(),
-        }).unwrap();
+        })
+        .unwrap();
         store.set("name", "Alice").unwrap();
         assert_eq!(store.get("name"), Ok(Some("Alice")));
     } // store 销毁，模拟服务器关闭
@@ -71,9 +72,21 @@ fn recover_multiple_sets() {
     let p = Persistence::new(&path);
 
     // 模拟服务器运行中：写入多条记录
-    p.append(&LogRecord::Set { key: "a".into(), value: "1".into() }).unwrap();
-    p.append(&LogRecord::Set { key: "b".into(), value: "2".into() }).unwrap();
-    p.append(&LogRecord::Set { key: "c".into(), value: "3".into() }).unwrap();
+    p.append(&LogRecord::Set {
+        key: "a".into(),
+        value: "1".into(),
+    })
+    .unwrap();
+    p.append(&LogRecord::Set {
+        key: "b".into(),
+        value: "2".into(),
+    })
+    .unwrap();
+    p.append(&LogRecord::Set {
+        key: "c".into(),
+        value: "3".into(),
+    })
+    .unwrap();
 
     // 重启恢复
     let mut store = KVStore::new();
@@ -85,7 +98,10 @@ fn recover_multiple_sets() {
     assert_eq!(store.get("c"), Ok(Some("3")));
 
     let keys = store.list();
-    assert_eq!(keys, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+    assert_eq!(
+        keys,
+        vec!["a".to_string(), "b".to_string(), "c".to_string()]
+    );
 
     cleanup(&path);
 }
@@ -97,8 +113,16 @@ fn recover_overwrite() {
     let p = Persistence::new(&path);
 
     // 先写 v1，再覆盖为 v2
-    p.append(&LogRecord::Set { key: "k".into(), value: "v1".into() }).unwrap();
-    p.append(&LogRecord::Set { key: "k".into(), value: "v2".into() }).unwrap();
+    p.append(&LogRecord::Set {
+        key: "k".into(),
+        value: "v1".into(),
+    })
+    .unwrap();
+    p.append(&LogRecord::Set {
+        key: "k".into(),
+        value: "v2".into(),
+    })
+    .unwrap();
 
     let mut store = KVStore::new();
     p.recover(&mut store).unwrap();
@@ -115,7 +139,11 @@ fn recover_delete() {
     let path = temp_log_path("delete");
     let p = Persistence::new(&path);
 
-    p.append(&LogRecord::Set { key: "k".into(), value: "v".into() }).unwrap();
+    p.append(&LogRecord::Set {
+        key: "k".into(),
+        value: "v".into(),
+    })
+    .unwrap();
     p.append(&LogRecord::Del { key: "k".into() }).unwrap();
 
     let mut store = KVStore::new();
@@ -134,9 +162,17 @@ fn recover_delete_then_set_again() {
     let p = Persistence::new(&path);
 
     // SET → DEL → SET（同一个key）
-    p.append(&LogRecord::Set { key: "k".into(), value: "v1".into() }).unwrap();
+    p.append(&LogRecord::Set {
+        key: "k".into(),
+        value: "v1".into(),
+    })
+    .unwrap();
     p.append(&LogRecord::Del { key: "k".into() }).unwrap();
-    p.append(&LogRecord::Set { key: "k".into(), value: "v2".into() }).unwrap();
+    p.append(&LogRecord::Set {
+        key: "k".into(),
+        value: "v2".into(),
+    })
+    .unwrap();
 
     let mut store = KVStore::new();
     p.recover(&mut store).unwrap();
@@ -194,7 +230,8 @@ fn recover_value_with_spaces() {
     p.append(&LogRecord::Set {
         key: "msg".into(),
         value: "hello world from kvstore".into(),
-    }).unwrap();
+    })
+    .unwrap();
 
     let mut store = KVStore::new();
     p.recover(&mut store).unwrap();
@@ -213,7 +250,8 @@ fn recover_value_with_chinese() {
     p.append(&LogRecord::Set {
         key: "greeting".into(),
         value: "你好，世界".into(),
-    }).unwrap();
+    })
+    .unwrap();
 
     let mut store = KVStore::new();
     p.recover(&mut store).unwrap();
@@ -234,7 +272,8 @@ fn recover_many_records() {
         p.append(&LogRecord::Set {
             key: format!("key{}", i),
             value: format!("value{}", i),
-        }).unwrap();
+        })
+        .unwrap();
     }
 
     let mut store = KVStore::new();
@@ -351,9 +390,17 @@ fn full_lifecycle_two_restarts() {
         p.recover(&mut store).unwrap(); // 空恢复
         assert!(store.is_empty());
 
-        p.append(&LogRecord::Set { key: "a".into(), value: "1".into() }).unwrap();
+        p.append(&LogRecord::Set {
+            key: "a".into(),
+            value: "1".into(),
+        })
+        .unwrap();
         store.set("a", "1").unwrap();
-        p.append(&LogRecord::Set { key: "b".into(), value: "2".into() }).unwrap();
+        p.append(&LogRecord::Set {
+            key: "b".into(),
+            value: "2".into(),
+        })
+        .unwrap();
         store.set("b", "2").unwrap();
     } // 关服
 
@@ -366,11 +413,19 @@ fn full_lifecycle_two_restarts() {
         assert_eq!(store.get("b"), Ok(Some("2")));
 
         // 继续操作：修改 a、删除 b、新增 c
-        p.append(&LogRecord::Set { key: "a".into(), value: "999".into() }).unwrap();
+        p.append(&LogRecord::Set {
+            key: "a".into(),
+            value: "999".into(),
+        })
+        .unwrap();
         store.set("a", "999").unwrap();
         p.append(&LogRecord::Del { key: "b".into() }).unwrap();
         store.delete("b").unwrap();
-        p.append(&LogRecord::Set { key: "c".into(), value: "3".into() }).unwrap();
+        p.append(&LogRecord::Set {
+            key: "c".into(),
+            value: "3".into(),
+        })
+        .unwrap();
         store.set("c", "3").unwrap();
     } // 再次关服
 
@@ -381,8 +436,8 @@ fn full_lifecycle_two_restarts() {
 
         assert_eq!(store.len(), 2);
         assert_eq!(store.get("a"), Ok(Some("999"))); // 覆盖后的值
-        assert_eq!(store.get("b"), Ok(None));       // 已删除
-        assert_eq!(store.get("c"), Ok(Some("3")));   // 第2次新增
+        assert_eq!(store.get("b"), Ok(None)); // 已删除
+        assert_eq!(store.get("c"), Ok(Some("3"))); // 第2次新增
         assert_eq!(store.list(), vec!["a".to_string(), "c".to_string()]);
     }
 
@@ -418,8 +473,16 @@ fn append_writes_correct_lines() {
     cleanup(&path);
     let p = Persistence::new(&path);
 
-    p.append(&LogRecord::Set { key: "a".into(), value: "1".into() }).unwrap();
-    p.append(&LogRecord::Set { key: "b".into(), value: "2".into() }).unwrap();
+    p.append(&LogRecord::Set {
+        key: "a".into(),
+        value: "1".into(),
+    })
+    .unwrap();
+    p.append(&LogRecord::Set {
+        key: "b".into(),
+        value: "2".into(),
+    })
+    .unwrap();
     p.append(&LogRecord::Del { key: "a".into() }).unwrap();
 
     let content = std::fs::read_to_string(&path).unwrap();
@@ -440,7 +503,11 @@ fn append_flushes_to_disk() {
     cleanup(&path);
     let p = Persistence::new(&path);
 
-    p.append(&LogRecord::Set { key: "k".into(), value: "v".into() }).unwrap();
+    p.append(&LogRecord::Set {
+        key: "k".into(),
+        value: "v".into(),
+    })
+    .unwrap();
 
     // 不用关 Persistence，直接读文件——如果没 flush 就会是空的
     let metadata = std::fs::metadata(&path).unwrap();

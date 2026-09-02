@@ -55,7 +55,9 @@ fn print_help() {
     print_version();
     println!();
     println!("用法:");
-    println!("  cargo run -- server [--port 7878] [--data data/kv.log]  启动服务器（网络模式，多客户端并发）");
+    println!(
+        "  cargo run -- server [--port 7878] [--data data/kv.log]  启动服务器（网络模式，多客户端并发）"
+    );
     println!("  cargo run -- server --local  启动服务器（本地模式，无网络）");
     println!("  cargo run -- client [--port 7878]  启动客户端（连接服务器）");
     println!("  cargo run -- client --local  启动客户端（本地模式，无网络）");

@@ -227,7 +227,7 @@ mod tests {
         assert!(matches!(store.get("a b"), Err(StoreError::InvalidKey(_))));
     }
 
-    #[test]
+     #[test]
     fn reject_key_with_newline() {
         let mut store = KVStore::new();
         assert!(matches!(store.set("a\nb", "v", None), Err(StoreError::InvalidKey(_))));

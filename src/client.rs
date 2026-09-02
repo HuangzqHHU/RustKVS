@@ -1,7 +1,7 @@
 //! 命令行客户端模块（成员C负责）
 //!
 //! 第1天：定义入口函数签名（骨架，可编译）。
-use crate::parser::{parse_command, ParsedCommand};
+use crate::parser::{ParsedCommand, parse_command};
 use crate::protocol::Command;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -9,7 +9,7 @@ use std::time::Duration;
 
 pub fn run_local_repl<F>(mut execute: F)
 where
- F: FnMut(ParsedCommand) -> String,
+    F: FnMut(ParsedCommand) -> String,
 {
     loop {
         print!("kv> ");
@@ -23,22 +23,22 @@ where
                 break;
             }
 
-Ok(_) => match parse_command(&input) {
-    Ok(command) => {
-        let is_exit = matches!(command.command, Command::Exit);
+            Ok(_) => match parse_command(&input) {
+                Ok(command) => {
+                    let is_exit = matches!(command.command, Command::Exit);
 
-        let response = execute(command);
-        println!("{}", response);
+                    let response = execute(command);
+                    println!("{}", response);
 
-        if is_exit {
-            break;
-        }
-    }
+                    if is_exit {
+                        break;
+                    }
+                }
 
-    Err(error) => {
-        println!("{}", error);
-    }
-},
+                Err(error) => {
+                    println!("{}", error);
+                }
+            },
 
             Err(error) => {
                 eprintln!("读取输入失败：{}", error);
@@ -62,10 +62,7 @@ pub fn run_tcp_repl(address: &str) {
         }
     };
 
-    let mut writer = match TcpStream::connect_timeout(
-        &socket_address,
-        Duration::from_secs(5),
-    ) {
+    let mut writer = match TcpStream::connect_timeout(&socket_address, Duration::from_secs(5)) {
         Ok(stream) => stream,
         Err(error) => {
             eprintln!("连接服务器失败：{}，原因：{}", address, error);

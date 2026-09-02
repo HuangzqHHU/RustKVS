@@ -10,9 +10,9 @@
 //!       C 已经在 parser 模块内写了单元测试。
 //! 这里写的是集成视角的测试——跨方法、跨模块、多步骤、模拟真实使用流程。
 
-use kvstore::store::{KVStore, StoreError};
 use kvstore::parser::parse_command;
 use kvstore::protocol::Command;
+use kvstore::store::{KVStore, StoreError};
 
 // ============================================================
 // 一、端到端操作流测试（模拟真实用户连续操作）
@@ -67,7 +67,9 @@ fn e2e_many_keys_insert_and_list() {
     let n = 100;
 
     for i in 0..n {
-        store.set(&format!("key{}", i), &format!("value{}", i)).unwrap();
+        store
+            .set(&format!("key{}", i), &format!("value{}", i))
+            .unwrap();
     }
     assert_eq!(store.len(), n);
 
@@ -484,18 +486,24 @@ fn e2e_parse_and_execute_full_flow() {
 
     // SET a 1
     let cmd = parse_command("SET a 1").unwrap();
-    store.set(cmd.key.as_deref().unwrap(), cmd.value.as_deref().unwrap()).unwrap();
+    store
+        .set(cmd.key.as_deref().unwrap(), cmd.value.as_deref().unwrap())
+        .unwrap();
 
     // SET b 2
     let cmd = parse_command("SET b 2").unwrap();
-    store.set(cmd.key.as_deref().unwrap(), cmd.value.as_deref().unwrap()).unwrap();
+    store
+        .set(cmd.key.as_deref().unwrap(), cmd.value.as_deref().unwrap())
+        .unwrap();
 
     // 数量
     assert_eq!(store.len(), 2);
 
     // SET a 999（覆盖）
     let cmd = parse_command("SET a 999").unwrap();
-    store.set(cmd.key.as_deref().unwrap(), cmd.value.as_deref().unwrap()).unwrap();
+    store
+        .set(cmd.key.as_deref().unwrap(), cmd.value.as_deref().unwrap())
+        .unwrap();
     assert_eq!(store.len(), 2);
     assert_eq!(store.get("a"), Ok(Some("999")));
 
