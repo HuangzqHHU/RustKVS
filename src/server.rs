@@ -1,31 +1,32 @@
 //! 服务器模块（成员A负责）
 //!
 //! 第2天：stdin 主循环（本地模式）。
-//! 第3天：TCP 网络模式 + 持久化接入——
-//!   - TcpListener 监听、逐行读请求、执行、写回响应；
-//!   - 启动时 recover 恢复数据，写操作先写日志再更新内存；
-//!   - 处理消息分段、超长请求、非法文本、客户端断开。
-//! 第4天：多客户端并发（每连接一线程 + Arc<Mutex<Server>>）。
+//! 第3天：TCP 网络模式 + 持久化接入——启动 recover、写操作先写日志再更新内存。
+//! 第4天：多客户端并发——
+//!   - 每连接一线程（thread::spawn），多个客户端同时连接并行处理；
+//!   - Arc<Mutex<Server>> 共享存储状态，锁只在 execute（数据操作）期间持有；
+//!   - 参数化：--port <端口>、--data <数据文件路径>。
 //!
 //! 依赖（已合并）：
 //!   - parser::parse_command（成员C）
 //!   - store::KVStore（成员B）
 //!   - persistence::Persistence（成员B）——追加日志与启动恢复
-//!   - protocol 常量：DEFAULT_ADDR / DEFAULT_DATA_FILE / MAX_MSG_LEN
+//!   - protocol 常量：DEFAULT_ADDR / DEFAULT_PORT / DEFAULT_DATA_FILE / MAX_MSG_LEN
 
 use crate::parser;
 use crate::persistence::{LogRecord, Persistence};
 use crate::protocol::error;
 use crate::protocol::Command;
-use crate::protocol::{DEFAULT_ADDR, DEFAULT_DATA_FILE};
+use crate::protocol::{DEFAULT_DATA_FILE, DEFAULT_PORT};
 use crate::store::KVStore;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
 
 /// 服务器：封装内存存储与持久化，execute 为统一执行入口。
 ///
-/// 第4天并发改造点：改为 `Arc<Mutex<Server>>` 由各连接线程共享，
-/// execute 内的数据操作天然在锁保护下执行。
+/// 第4天起以 `Arc<Mutex<Server>>` 形式被多个连接线程共享，
+/// execute 内的数据操作（含写日志）天然在锁保护下串行执行。
 pub struct Server {
     store: KVStore,
     persistence: Persistence,
@@ -53,6 +54,7 @@ impl Server {
     ///   - DEL 键不存在：属于"无实际修改"，不写日志，直接返回"键不存在"；
     ///   - 写日志失败：返回明确错误，不更新内存（不返回虚假成功）。
     ///
+    /// 并发安全：本方法整体在调用方的 Mutex 锁内执行，写日志+更新内存不可分割。
     /// 所有错误转成 "ERROR <说明>" 文本返回，绝不 panic，保证循环继续。
     pub fn execute(&mut self, parsed: &parser::ParsedCommand) -> Option<String> {
         let cmd = parsed.command;
@@ -127,13 +129,27 @@ impl Server {
 }
 
 /// 启动服务器。
-/// 默认：网络模式（第3天）；传 `--local`：本地 stdin 模式（第2天，调试/演示用）。
+/// 默认：网络模式；`--local`：本地 stdin 模式（第2天，调试/演示用）。
+///
+/// 网络模式参数（第4天）：
+///   --port <端口>   监听端口（默认 7878）
+///   --data <路径>   数据文件路径（默认 data/kv.log）
 pub fn run(args: &[String]) {
     if args.iter().any(|a| a == "--local") {
         run_local();
-    } else {
-        run_network();
+        return;
     }
+    let port = get_arg(args, "--port").unwrap_or_else(|| DEFAULT_PORT.to_string());
+    let data_file = get_arg(args, "--data").unwrap_or_else(|| DEFAULT_DATA_FILE.to_string());
+    let addr = format!("127.0.0.1:{}", port);
+    run_network(&addr, &data_file);
+}
+
+/// 从命令行参数中取 `--name` 后面的值
+fn get_arg(args: &[String], name: &str) -> Option<String> {
+    args.iter()
+        .position(|a| a == name)
+        .and_then(|i| args.get(i + 1).cloned())
 }
 
 /// 第2天模式：本地 stdin 主循环（无网络）
@@ -183,38 +199,46 @@ fn run_local() {
     println!("服务器已退出");
 }
 
-/// 第3天模式：TCP 网络服务
+/// 第4天模式：TCP 网络服务（多客户端并发）
 ///
-/// 第3天为单客户端串行处理：一个连接处理完（EXIT 或断开）再接下一个。
-/// 第4天改为每连接一线程并发处理（见 handle_connection 注释）。
-fn run_network() {
-    let listener = match TcpListener::bind(DEFAULT_ADDR) {
+/// - 每接受一个连接就 `thread::spawn` 一个处理线程，互不阻塞；
+/// - `Arc<Mutex<Server>>` 供所有连接线程共享同一份存储与持久化；
+/// - 单个连接线程 panic/退出不影响服务器主循环和其他连接。
+fn run_network(addr: &str, data_file: &str) {
+    let listener = match TcpListener::bind(addr) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("监听 {} 失败: {}", DEFAULT_ADDR, e);
+            eprintln!("监听 {} 失败: {}", addr, e);
             std::process::exit(1);
         }
     };
 
     // 启动恢复：数据文件损坏/格式异常时明确报错退出，绝不静默清空
-    let mut server = Server::new(DEFAULT_DATA_FILE);
-    if let Err(e) = server.recover() {
-        eprintln!("启动失败: 数据文件异常 - {}", e);
-        std::process::exit(1);
+    let server = Arc::new(Mutex::new(Server::new(data_file)));
+    {
+        let mut guard = server.lock().expect("服务器锁中毒");
+        if let Err(e) = guard.recover() {
+            eprintln!("启动失败: 数据文件异常 - {}", e);
+            std::process::exit(1);
+        }
     }
 
-    println!("kvstore 服务器已启动（第3天：网络模式）");
-    println!("监听地址: {}", DEFAULT_ADDR);
-    println!("数据文件: {}", DEFAULT_DATA_FILE);
+    println!("kvstore 服务器已启动（第4天：网络模式，多客户端并发）");
+    println!("监听地址: {}", addr);
+    println!("数据文件: {}", data_file);
     println!("启动状态: 正在监听，等待客户端连接...");
     println!();
 
     loop {
         match listener.accept() {
-            Ok((stream, addr)) => {
-                println!("[连接] {} 已连接", addr);
-                handle_connection(stream, &mut server);
-                println!("[连接] {} 已断开", addr);
+            Ok((stream, client_addr)) => {
+                println!("[连接] {} 已连接", client_addr);
+                let server = Arc::clone(&server);
+                // 每连接一线程：连接处理完（EXIT/断开）线程结束，服务器继续 accept
+                std::thread::spawn(move || {
+                    handle_connection(stream, server);
+                    println!("[连接] {} 已断开", client_addr);
+                });
             }
             Err(e) => {
                 // 单个 accept 失败不影响服务器继续监听
@@ -226,14 +250,16 @@ fn run_network() {
 
 /// 处理一个客户端连接：逐行读请求 → 解析 → 执行 → 写回响应
 ///
-/// - BufReader::read_line 自动处理 TCP 消息分段（半包/粘包），无需自拼缓冲；
+/// 并发安全核心：**锁只在执行数据操作（execute）时短暂持有**，
+/// 等待网络输入（read_line）和发送响应（send_line）时都不持锁——
+/// 因此多个客户端可以真正并行：一个客户端在等待输入时，
+/// 其他客户端照常读写数据。
+///
+/// - BufReader::read_line 自动处理 TCP 消息分段（半包/粘包）；
 /// - 超长请求由 parser 的 MAX_MSG_LEN 校验并回 ERROR；
 /// - 客户端断开（read_line 返回 0）或收到 EXIT 时结束本连接；
 /// - 单连接内一条命令出错不影响后续命令。
-///
-/// 第4天改造点：本函数改成接收 `Arc<Mutex<Server>>`，
-/// 在 run_network 中 `thread::spawn(move || handle_connection(stream, server))`。
-fn handle_connection(stream: TcpStream, server: &mut Server) {
+fn handle_connection(stream: TcpStream, server: Arc<Mutex<Server>>) {
     // 读写各持一个句柄：BufReader 读，原 stream 写
     let read_stream = match stream.try_clone() {
         Ok(s) => s,
@@ -260,7 +286,7 @@ fn handle_connection(stream: TcpStream, server: &mut Server) {
             continue; // 空行忽略
         }
 
-        // 解析；错误回写 ERROR 后继续处理下一条
+        // 解析；错误回写 ERROR 后继续处理下一条（不持锁）
         let parsed = match parser::parse_command(line) {
             Ok(p) => p,
             Err(e) => {
@@ -271,14 +297,17 @@ fn handle_connection(stream: TcpStream, server: &mut Server) {
             }
         };
 
-        // 执行；None 表示收到 EXIT，关闭本连接
-        match server.execute(&parsed) {
-            Some(reply) => {
-                if send_line(&mut writer, &reply).is_err() {
-                    break;
-                }
+        // 加锁执行——锁范围最小化：只覆盖 execute（数据操作+写日志）
+        let reply = {
+            let mut guard = server.lock().expect("服务器锁中毒");
+            match guard.execute(&parsed) {
+                Some(r) => r,
+                None => break, // 收到 EXIT，关闭本连接
             }
-            None => break,
+        }; // 锁在此处释放
+
+        if send_line(&mut writer, &reply).is_err() {
+            break;
         }
     }
 }
@@ -418,5 +447,53 @@ mod tests {
         let reply = restarted.execute(&cmd(Command::Get, Some("k"), None)).unwrap();
         assert_eq!(reply, format!("ERROR {}", error::KEY_NOT_FOUND));
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// 第4天并发安全测试：多线程同时写入不同键，全部成功且互不覆盖
+    #[test]
+    fn concurrent_execute_is_safe() {
+        let server = Arc::new(Mutex::new(make_server("concurrent")));
+        let mut handles = Vec::new();
+        for i in 0..8 {
+            let server = Arc::clone(&server);
+            handles.push(std::thread::spawn(move || {
+                let mut guard = server.lock().unwrap();
+                let reply = guard
+                    .execute(&cmd(Command::Set, Some(&format!("key{}", i)), Some("v")))
+                    .unwrap();
+                assert_eq!(reply, "OK");
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        // 8 个键全部写入成功
+        let mut guard = server.lock().unwrap();
+        let reply = guard.execute(&cmd(Command::Status, None, None)).unwrap();
+        assert_eq!(reply, "STATUS count=8");
+    }
+
+    /// 第4天并发安全测试：多线程同时写同一键，最终值一定是某一次写入（不损坏、不 panic）
+    #[test]
+    fn concurrent_write_same_key_no_corruption() {
+        let server = Arc::new(Mutex::new(make_server("concurrent_same")));
+        let mut handles = Vec::new();
+        for i in 0..16 {
+            let server = Arc::clone(&server);
+            handles.push(std::thread::spawn(move || {
+                let mut guard = server.lock().unwrap();
+                let reply = guard
+                    .execute(&cmd(Command::Set, Some("shared"), Some(&format!("v{}", i))))
+                    .unwrap();
+                assert_eq!(reply, "OK");
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        // 最终值是 16 次写入中的某一次
+        let mut guard = server.lock().unwrap();
+        let reply = guard.execute(&cmd(Command::Get, Some("shared"), None)).unwrap();
+        assert!(reply.starts_with("VALUE shared v"), "意外值: {}", reply);
     }
 }

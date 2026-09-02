@@ -11,7 +11,7 @@
 //! 这里写的是集成视角的测试——跨方法、跨模块、多步骤、模拟真实使用流程。
 
 use kvstore::store::{KVStore, StoreError};
-use kvstore::parser::{parse_command, ParsedCommand, ParseError};
+use kvstore::parser::parse_command;
 use kvstore::protocol::Command;
 
 // ============================================================
