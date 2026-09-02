@@ -13,34 +13,142 @@
 //!   POST /cmd 执行命令（表单字段 command=整条命令文本）
 //!   白名单：仅 SET/GET/DEL/LIST/STATUS/PING；EXIT 一律拒绝
 
+//! Web 管理界面——页面与路由（成员C负责）
+
+use crate::parser;
 use crate::server::Server;
 use crate::web::{self, HttpRequest};
 
-/// 路由入口：根据请求返回完整 HTTP 响应字符串
-///
-/// TODO(成员C)：实现主页 HTML（数据表 + 表单）、/get 查询、/cmd 执行。
-/// 提示：
-///   1. 数据表：先 LIST 拿全部键，再逐个 GET 取值，拼成 <table>；
-///   2. 所有用户数据（键/值/错误信息）必须过 web::html_escape；
-///   3. POST /cmd：取 body 中 command 字段 → parser::parse_command(line)
-///      → server.execute(&parsed) → 结果嵌回主页；
-///      command 为 EXIT 时返回错误提示（不得退出服务器）；
-///   4. 可先用 GET / 输出固定 HTML 跑通浏览器链路，再补数据表与 /cmd。
+/// 路由入口
 pub fn handle(req: &HttpRequest, server: &mut Server) -> String {
-    // 骨架实现：GET / 返回占位主页（保证链路可通）；其余 404/501
-    let _ = server;
-    match req.method.as_str() {
-        "GET" => match req.path.as_str() {
-            "/" => web::http_response(
-                200,
-                "text/html; charset=utf-8",
-                "<html><head><meta charset=\"utf-8\"></head><body>\
-                 <h1>kvstore Web 管理</h1>\
-                 <p>主页待实现（成员C）：将显示数据表与命令表单</p>\
-                 </body></html>",
-            ),
-            _ => web::http_response(404, "text/html; charset=utf-8", "<h1>404 Not Found</h1>"),
+    match (req.method.as_str(), req.path.as_str()) {
+        ("GET", "/") => index_page(server, None),
+        ("GET", "/get") => query_key(req, server),
+        ("POST", "/cmd") => run_command(req, server),
+        _ => web::http_response(
+            404,
+            "text/html; charset=utf-8",
+            "<h1>404 Not Found</h1><p><a href='/'>返回主页</a></p>",
+        ),
+    }
+}
+
+/// 把一行命令文本解析并执行，返回响应文本（或错误）
+///
+/// EXIT 为什么不会退出服务器：parse_command("EXIT") 成功，
+/// 但 server.execute 返回 None → 这里转成错误提示返回。
+fn run_line(server: &mut Server, line: &str) -> String {
+    match parser::parse_command(line) {
+        Ok(p) => match server.execute(&p) {
+            Some(reply) => reply,
+            None => "ERROR 该命令不允许在网页上执行".to_string(),
         },
-        _ => web::http_response(501, "text/html; charset=utf-8", "<h1>501 Not Implemented</h1>"),
+        Err(e) => format!("ERROR {}", e.message),
+    }
+}
+
+/// 主页：状态行 + 键值表 + 命令表单 + 执行结果（flash）
+fn index_page(server: &mut Server, flash: Option<&str>) -> String {
+    let status = run_line(server, "STATUS");
+
+    // 数据表：LIST 拿全部键，逐个 GET 取值
+    let list_reply = run_line(server, "LIST");
+    let keys: Vec<&str> = match list_reply.strip_prefix("KEYS") {
+        Some(rest) => rest.trim().split(' ').filter(|s| !s.is_empty()).collect(),
+        None => Vec::new(),
+    };
+    let mut rows = String::new();
+    for key in keys {
+        let reply = run_line(server, &format!("GET {}", key));
+        // GET 响应形如 "VALUE <key> <value>"；取 value 部分
+        let value = reply
+            .strip_prefix("VALUE")
+            .and_then(|r| r.trim().split_once(' '))
+            .map(|(_, v)| v.to_string())
+            .unwrap_or_else(|| reply.clone()); // 可能是过期/错误等
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td></tr>",
+            web::html_escape(key),
+            web::html_escape(&value)
+        ));
+    }
+
+    let flash_html = match flash {
+        Some(f) => {
+            let color = if f.starts_with("ERROR") { "red" } else { "green" };
+            format!(
+                "<div style='color:{};margin:10px 0;'>{}</div>",
+                color,
+                web::html_escape(f)
+            )
+        }
+        None => String::new(),
+    };
+
+    let body = format!(
+        r#"<!DOCTYPE html>
+<html lang="zh">
+<head><meta charset="utf-8"><title>kvstore Web 管理</title>
+<style>
+body {{ font-family: "Microsoft YaHei", sans-serif; margin: 30px; }}
+table {{ border-collapse: collapse; margin: 15px 0; }}
+td, th {{ border: 1px solid #ccc; padding: 6px 14px; }}
+th {{ background: #f0f0f0; }}
+input[type=text] {{ width: 55%; padding: 6px; }}
+button {{ padding: 6px 18px; }}
+</style></head>
+<body>
+<h1>kvstore Web 管理</h1>
+<p>{}</p>
+{}
+<h2>数据表</h2>
+<table><tr><th>Key</th><th>Value</th></tr>{}</table>
+<h2>执行命令</h2>
+<form method="post" action="/cmd">
+  <input type="text" name="command" placeholder="例如: SET course Rust 5" autofocus>
+  <button type="submit">执行</button>
+</form>
+<p style="color:#888;">支持: SET key value [ttl] / GET key / DEL key / LIST / STATUS / PING（EXIT 不可用）</p>
+</body></html>"#,
+        web::html_escape(&status),
+        flash_html,
+        if rows.is_empty() { "<tr><td colspan=2>（空）</td></tr>".to_string() } else { rows }
+    );
+    web::http_response(200, "text/html; charset=utf-8", &body)
+}
+
+/// GET /get?key=xxx：单键查询
+fn query_key(req: &HttpRequest, server: &mut Server) -> String {
+    let key = req.query.iter().find(|(k, _)| k == "key").map(|(_, v)| v.clone());
+    match key {
+        Some(k) => {
+            let reply = run_line(server, &format!("GET {}", k));
+            let body = format!(
+                "<h1>查询结果</h1><pre>{}</pre><p><a href='/'>返回主页</a></p>",
+                web::html_escape(&reply)
+            );
+            web::http_response(200, "text/html; charset=utf-8", &body)
+        }
+        None => web::http_response(
+            400,
+            "text/html; charset=utf-8",
+            "<h1>400 缺少 key 参数</h1><p><a href='/'>返回主页</a></p>",
+        ),
+    }
+}
+
+/// POST /cmd：执行命令，返回带结果的主页
+fn run_command(req: &HttpRequest, server: &mut Server) -> String {
+    let command = req
+        .body
+        .iter()
+        .find(|(k, _)| k == "command")
+        .map(|(_, v)| v.trim().to_string());
+    match command {
+        Some(line) if !line.is_empty() => {
+            let result = run_line(server, &line);
+            index_page(server, Some(&result))
+        }
+        _ => index_page(server, Some("ERROR 命令为空")),
     }
 }
