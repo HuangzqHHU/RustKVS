@@ -15,8 +15,7 @@ use std::thread;
 use std::time::Duration;
 
 use kvstore::parser;
-use kvstore::server::execute;
-use kvstore::store::KVStore;
+use kvstore::server::Server;
 use kvstore::protocol::error;
 
 // ------------------------------------------------------------
@@ -25,23 +24,25 @@ use kvstore::protocol::error;
 
 fn start_test_server() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = listener.local_addr().unwrap().to_string();
+    let addr = listener.local_addr().unwrap();
+    // 每个测试独立的临时数据文件（按端口区分），避免测试间互相干扰
+    let data_file = std::env::temp_dir().join(format!("kvstore_net_{}.log", addr.port()));
 
     thread::spawn(move || {
         if let Ok((stream, _)) = listener.accept() {
-            handle_conn(stream);
+            handle_conn(stream, &data_file);
         }
     });
 
     thread::sleep(Duration::from_millis(50));
-    addr
+    addr.to_string()
 }
 
-fn handle_conn(stream: TcpStream) {
+fn handle_conn(stream: TcpStream, data_file: &std::path::Path) {
     let read_stream = stream.try_clone().unwrap();
     let mut reader = BufReader::new(read_stream);
     let mut writer = stream;
-    let mut store = KVStore::new();
+    let mut server = Server::new(data_file.to_str().unwrap());
 
     loop {
         let mut line = String::new();
@@ -64,7 +65,7 @@ fn handle_conn(stream: TcpStream) {
             }
         };
 
-        match execute(&mut store, &parsed) {
+        match server.execute(&parsed) {
             Some(reply) => {
                 let _ = writer.write_all(reply.as_bytes());
                 let _ = writer.write_all(b"\n");
