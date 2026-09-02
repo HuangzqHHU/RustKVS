@@ -50,7 +50,7 @@ fn recover_single_set() {
             value: "Alice".into(),
         })
         .unwrap();
-        store.set("name", "Alice").unwrap();
+        store.set("name", "Alice", None).unwrap();
         assert_eq!(store.get("name"), Ok(Some("Alice")));
     } // store 销毁，模拟服务器关闭
 
@@ -395,13 +395,13 @@ fn full_lifecycle_two_restarts() {
             value: "1".into(),
         })
         .unwrap();
-        store.set("a", "1").unwrap();
+        store.set("a", "1", None).unwrap();
         p.append(&LogRecord::Set {
             key: "b".into(),
             value: "2".into(),
         })
         .unwrap();
-        store.set("b", "2").unwrap();
+        store.set("b", "2", None).unwrap();
     } // 关服
 
     // ===== 第2次启动：恢复并继续写入 =====
@@ -418,7 +418,7 @@ fn full_lifecycle_two_restarts() {
             value: "999".into(),
         })
         .unwrap();
-        store.set("a", "999").unwrap();
+        store.set("a", "999", None).unwrap();
         p.append(&LogRecord::Del { key: "b".into() }).unwrap();
         store.delete("b").unwrap();
         p.append(&LogRecord::Set {
@@ -426,7 +426,7 @@ fn full_lifecycle_two_restarts() {
             value: "3".into(),
         })
         .unwrap();
-        store.set("c", "3").unwrap();
+        store.set("c", "3", None).unwrap();
     } // 再次关服
 
     // ===== 第3次启动：验证最终状态 =====

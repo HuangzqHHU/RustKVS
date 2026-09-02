@@ -83,8 +83,8 @@ impl Server {
                 }) {
                     return Some(format!("ERROR 写日志失败: {}", e));
                 }
-                // 2) 后更新内存
-                match self.store.set(key, value) {
+                // 2) 后更新内存（TTL 过期时间随 set 传入；None = 永不过期）
+                match self.store.set(key, value, parsed.ttl) {
                     Ok(()) => "OK".to_string(),
                     Err(e) => format!("ERROR {}", e),
                 }
@@ -360,12 +360,13 @@ mod tests {
     use crate::parser::ParsedCommand;
     use crate::protocol::Command;
 
-    /// 构造一条已解析的命令（字段与成员C的 parser 输出一致）
+    /// 构造一条已解析的命令（字段与成员C的 parser 输出一致；ttl 默认 None）
     fn cmd(command: Command, key: Option<&str>, value: Option<&str>) -> ParsedCommand {
         ParsedCommand {
             command,
             key: key.map(|s| s.to_string()),
             value: value.map(|s| s.to_string()),
+            ttl: None,
         }
     }
 

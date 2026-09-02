@@ -28,17 +28,17 @@ fn e2e_full_command_flow() {
     assert_eq!(store.len(), 0);
 
     // SET name Alice
-    store.set("name", "Alice").unwrap();
+    store.set("name", "Alice", None).unwrap();
     assert_eq!(store.get("name"), Ok(Some("Alice")));
     assert_eq!(store.len(), 1);
 
     // SET age 20
-    store.set("age", "20").unwrap();
+    store.set("age", "20", None).unwrap();
     assert_eq!(store.get("age"), Ok(Some("20")));
     assert_eq!(store.len(), 2);
 
     // SET name Bob（覆盖写）
-    store.set("name", "Bob").unwrap();
+    store.set("name", "Bob", None).unwrap();
     assert_eq!(store.get("name"), Ok(Some("Bob")));
     assert_eq!(store.len(), 2); // 数量不变
 
@@ -68,7 +68,7 @@ fn e2e_many_keys_insert_and_list() {
 
     for i in 0..n {
         store
-            .set(&format!("key{}", i), &format!("value{}", i))
+            .set(&format!("key{}", i), &format!("value{}", i), None)
             .unwrap();
     }
     assert_eq!(store.len(), n);
@@ -91,9 +91,9 @@ fn e2e_many_keys_insert_and_list() {
 #[test]
 fn e2e_delete_all_back_to_empty() {
     let mut store = KVStore::new();
-    store.set("a", "1").unwrap();
-    store.set("b", "2").unwrap();
-    store.set("c", "3").unwrap();
+    store.set("a", "1", None).unwrap();
+    store.set("b", "2", None).unwrap();
+    store.set("c", "3", None).unwrap();
     assert_eq!(store.len(), 3);
 
     store.delete("a").unwrap();
@@ -113,7 +113,7 @@ fn e2e_delete_all_back_to_empty() {
 #[test]
 fn value_empty_string() {
     let mut store = KVStore::new();
-    store.set("k", "").unwrap();
+    store.set("k", "", None).unwrap();
     assert_eq!(store.get("k"), Ok(Some("")));
 }
 
@@ -121,7 +121,7 @@ fn value_empty_string() {
 #[test]
 fn value_with_spaces() {
     let mut store = KVStore::new();
-    store.set("greeting", "hello world").unwrap();
+    store.set("greeting", "hello world", None).unwrap();
     assert_eq!(store.get("greeting"), Ok(Some("hello world")));
 }
 
@@ -130,7 +130,7 @@ fn value_with_spaces() {
 fn value_with_special_chars() {
     let mut store = KVStore::new();
     let val = "!@#$%^&*()_+-=[]{}|;:'\",.<>?/`~";
-    store.set("special", val).unwrap();
+    store.set("special", val, None).unwrap();
     assert_eq!(store.get("special"), Ok(Some(val)));
 }
 
@@ -139,7 +139,7 @@ fn value_with_special_chars() {
 fn value_very_long() {
     let mut store = KVStore::new();
     let long_val = "a".repeat(10000);
-    store.set("long", &long_val).unwrap();
+    store.set("long", &long_val, None).unwrap();
     let result = store.get("long").unwrap().unwrap();
     assert_eq!(result.len(), 10000);
     assert_eq!(result, long_val);
@@ -149,7 +149,7 @@ fn value_very_long() {
 #[test]
 fn value_with_chinese() {
     let mut store = KVStore::new();
-    store.set("msg", "你好，世界").unwrap();
+    store.set("msg", "你好，世界", None).unwrap();
     assert_eq!(store.get("msg"), Ok(Some("你好，世界")));
 }
 
@@ -162,7 +162,7 @@ fn value_with_chinese() {
 fn invalid_key_empty() {
     let mut store = KVStore::new();
 
-    let set_err = store.set("", "v").unwrap_err();
+    let set_err = store.set("", "v", None).unwrap_err();
     assert!(matches!(set_err, StoreError::InvalidKey(_)));
 
     let get_err = store.get("").unwrap_err();
@@ -176,7 +176,7 @@ fn invalid_key_empty() {
 #[test]
 fn invalid_key_with_space() {
     let mut store = KVStore::new();
-    assert!(store.set("hello world", "v").is_err());
+    assert!(store.set("hello world", "v", None).is_err());
     assert!(store.get("hello world").is_err());
     assert!(store.delete("hello world").is_err());
 }
@@ -185,30 +185,30 @@ fn invalid_key_with_space() {
 #[test]
 fn invalid_key_with_tab() {
     let mut store = KVStore::new();
-    assert!(store.set("a\tb", "v").is_err());
+    assert!(store.set("a\tb", "v", None).is_err());
 }
 
 /// 含换行的键
 #[test]
 fn invalid_key_with_newline() {
     let mut store = KVStore::new();
-    assert!(store.set("a\nb", "v").is_err());
+    assert!(store.set("a\nb", "v", None).is_err());
 }
 
 /// 含回车的键
 #[test]
 fn invalid_key_with_carriage_return() {
     let mut store = KVStore::new();
-    assert!(store.set("a\rb", "v").is_err());
+    assert!(store.set("a\rb", "v", None).is_err());
 }
 
 /// 非法键不会写入数据
 #[test]
 fn invalid_key_does_not_pollute_store() {
     let mut store = KVStore::new();
-    let _ = store.set("", "v");
-    let _ = store.set("a b", "v");
-    let _ = store.set("a\nb", "v");
+    let _ = store.set("", "v", None);
+    let _ = store.set("a b", "v", None);
+    let _ = store.set("a\nb", "v", None);
 
     assert!(store.is_empty());
     assert_eq!(store.len(), 0);
@@ -237,10 +237,10 @@ fn list_empty_store() {
 #[test]
 fn list_sorted_lexicographic() {
     let mut store = KVStore::new();
-    store.set("z", "1").unwrap();
-    store.set("apple", "2").unwrap();
-    store.set("banana", "3").unwrap();
-    store.set("Zoo", "4").unwrap();
+    store.set("z", "1", None).unwrap();
+    store.set("apple", "2", None).unwrap();
+    store.set("banana", "3", None).unwrap();
+    store.set("Zoo", "4", None).unwrap();
 
     let keys = store.list();
     assert_eq!(
@@ -269,7 +269,7 @@ fn delete_nonexistent_returns_false() {
 #[test]
 fn delete_twice_same_key() {
     let mut store = KVStore::new();
-    store.set("k", "v").unwrap();
+    store.set("k", "v", None).unwrap();
 
     assert_eq!(store.delete("k"), Ok(true));
     assert_eq!(store.delete("k"), Ok(false));
@@ -468,7 +468,7 @@ fn e2e_parse_and_execute_set_get() {
     // 执行 SET
     let key = cmd.key.as_deref().unwrap();
     let value = cmd.value.as_deref().unwrap();
-    store.set(key, value).unwrap();
+    store.set(key, value, None).unwrap();
 
     // 解析 GET name
     let cmd = parse_command("GET name").unwrap();
@@ -487,13 +487,13 @@ fn e2e_parse_and_execute_full_flow() {
     // SET a 1
     let cmd = parse_command("SET a 1").unwrap();
     store
-        .set(cmd.key.as_deref().unwrap(), cmd.value.as_deref().unwrap())
+        .set(cmd.key.as_deref().unwrap(), cmd.value.as_deref().unwrap(), None)
         .unwrap();
 
     // SET b 2
     let cmd = parse_command("SET b 2").unwrap();
     store
-        .set(cmd.key.as_deref().unwrap(), cmd.value.as_deref().unwrap())
+        .set(cmd.key.as_deref().unwrap(), cmd.value.as_deref().unwrap(), None)
         .unwrap();
 
     // 数量
@@ -502,7 +502,7 @@ fn e2e_parse_and_execute_full_flow() {
     // SET a 999（覆盖）
     let cmd = parse_command("SET a 999").unwrap();
     store
-        .set(cmd.key.as_deref().unwrap(), cmd.value.as_deref().unwrap())
+        .set(cmd.key.as_deref().unwrap(), cmd.value.as_deref().unwrap(), None)
         .unwrap();
     assert_eq!(store.len(), 2);
     assert_eq!(store.get("a"), Ok(Some("999")));
@@ -529,7 +529,7 @@ fn e2e_parse_and_execute_full_flow() {
 #[test]
 fn e2e_parse_error_does_not_affect_store() {
     let mut store = KVStore::new();
-    store.set("good", "value").unwrap();
+    store.set("good", "value", None).unwrap();
 
     // 尝试解析一堆错误命令
     let _ = parse_command("");
