@@ -88,6 +88,9 @@ pub const DEFAULT_ADDR: &str = "127.0.0.1:7878";
 /// 默认端口（第4天参数化：--port 可覆盖）
 pub const DEFAULT_PORT: u16 = 7878;
 
+/// Web 管理界面默认端口（--web-port 可覆盖）
+pub const DEFAULT_WEB_PORT: u16 = 8080;
+
 /// 单条消息最大长度（字节），超过视为非法并返回 MSG_TOO_LONG（第3天实现校验）
 pub const MAX_MSG_LEN: usize = 1024;
 

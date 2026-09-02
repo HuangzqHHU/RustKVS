@@ -17,7 +17,7 @@ use crate::parser;
 use crate::persistence::{LogRecord, Persistence};
 use crate::protocol::Command;
 use crate::protocol::error;
-use crate::protocol::{DEFAULT_DATA_FILE, DEFAULT_PORT};
+use crate::protocol::{DEFAULT_DATA_FILE, DEFAULT_PORT, DEFAULT_WEB_PORT};
 use crate::store::KVStore;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
@@ -152,9 +152,10 @@ impl Server {
 /// 启动服务器。
 /// 默认：网络模式；`--local`：本地 stdin 模式（第2天，调试/演示用）。
 ///
-/// 网络模式参数（第4天）：
-///   --port <端口>   监听端口（默认 7878）
-///   --data <路径>   数据文件路径（默认 data/kv.log）
+/// 网络模式参数：
+///   --port <端口>      命令端口（默认 7878）
+///   --data <路径>      数据文件路径（默认 data/kv.log）
+///   --web-port <端口>  Web 管理端口（默认 8080；0 表示不启动 Web）
 pub fn run(args: &[String]) {
     if args.iter().any(|a| a == "--local") {
         run_local();
@@ -162,8 +163,11 @@ pub fn run(args: &[String]) {
     }
     let port = get_arg(args, "--port").unwrap_or_else(|| DEFAULT_PORT.to_string());
     let data_file = get_arg(args, "--data").unwrap_or_else(|| DEFAULT_DATA_FILE.to_string());
+    let web_port: u16 = get_arg(args, "--web-port")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_WEB_PORT);
     let addr = format!("127.0.0.1:{}", port);
-    run_network(&addr, &data_file);
+    run_network(&addr, &data_file, web_port);
 }
 
 /// 从命令行参数中取 `--name` 后面的值
@@ -220,12 +224,13 @@ fn run_local() {
     println!("服务器已退出");
 }
 
-/// 第4天模式：TCP 网络服务（多客户端并发）
+/// 第4天模式：TCP 网络服务（多客户端并发）+ Web 管理界面
 ///
 /// - 每接受一个连接就 `thread::spawn` 一个处理线程，互不阻塞；
 /// - `Arc<Mutex<Server>>` 供所有连接线程共享同一份存储与持久化；
+/// - Web 线程（web_port）与 TCP 线程共享同一 Server；
 /// - 单个连接线程 panic/退出不影响服务器主循环和其他连接。
-fn run_network(addr: &str, data_file: &str) {
+fn run_network(addr: &str, data_file: &str, web_port: u16) {
     let listener = match TcpListener::bind(addr) {
         Ok(l) => l,
         Err(e) => {
@@ -248,6 +253,20 @@ fn run_network(addr: &str, data_file: &str) {
     println!("监听地址: {}", addr);
     println!("数据文件: {}", data_file);
     println!("启动状态: 正在监听，等待客户端连接...");
+
+    // Web 管理界面（与 TCP 命令服务共享同一 Server）
+    if web_port > 0 {
+        match TcpListener::bind(format!("127.0.0.1:{}", web_port)) {
+            Ok(web_listener) => {
+                println!("Web 管理: http://127.0.0.1:{}", web_port);
+                crate::web::spawn_web_server(web_listener, Arc::clone(&server));
+            }
+            Err(e) => {
+                eprintln!("Web 端口 {} 监听失败: {}", web_port, e);
+                eprintln!("（可用 --web-port 0 关闭 Web 管理）");
+            }
+        }
+    }
     println!();
 
     loop {
