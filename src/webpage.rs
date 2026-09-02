@@ -23,6 +23,7 @@ use crate::web::{self, HttpRequest};
 pub fn handle(req: &HttpRequest, server: &mut Server) -> String {
     match (req.method.as_str(), req.path.as_str()) {
         ("GET", "/") => index_page(server, None),
+        ("GET", "/data") => data_rows_response(server),
         ("GET", "/get") => query_key(req, server),
         ("POST", "/cmd") => run_command(req, server),
         _ => web::http_response(
@@ -47,24 +48,22 @@ fn run_line(server: &mut Server, line: &str) -> String {
     }
 }
 
-/// 主页：状态行 + 键值表 + 命令表单 + 执行结果（flash）
-///
-/// 注意：页面渲染使用 Server 的只读快照（status_snapshot / key_values），
-/// 不执行 execute——避免页面刷新把内部读取计入 commands 计数。
-fn index_page(server: &mut Server, flash: Option<&str>) -> String {
-    // 只读状态行（不增加 commands 计数）
-    let status = server.status_snapshot();
-
-    // 只读键值数据（不增加 commands 计数）
-    let rows_data = server.key_values();
-    let mut rows = String::new();
-    for (key, value) in &rows_data {
-        rows.push_str(&format!(
-            "<tr><td>{}</td><td>{}</td></tr>",
-            web::html_escape(key),
-            web::html_escape(value)
-        ));
+/// 执行网页展示用的查询，不增加用户命令计数。
+fn run_line_without_count(server: &mut Server, line: &str) -> String {
+    match parser::parse_command(line) {
+        Ok(p) => server
+            .execute_without_count(&p)
+            .map(|reply| reply.to_string())
+            .unwrap_or_else(|| "ERROR 该命令不允许在网页上执行".to_string()),
+        Err(e) => format!("ERROR {}", e.message),
     }
+
+}
+/// 主页：状态行 + 键值表 + 命令表单 + 执行结果（flash）
+fn index_page(server: &mut Server, flash: Option<&str>) -> String {
+    let status = run_line_without_count(server, "STATUS");
+
+    let rows = data_rows(server);
 
     let flash_html = match flash {
         Some(f) => {
@@ -77,12 +76,6 @@ fn index_page(server: &mut Server, flash: Option<&str>) -> String {
         }
         None => String::new(),
     };
-
-    // 页面更新时间戳（秒）：手动刷新(F5)后数字变化 = 确认拿到服务器最新页面
-    let updated_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
 
     let body = format!(
         r#"<!DOCTYPE html>
@@ -99,19 +92,28 @@ button {{ padding: 6px 18px; }}
 <body>
 <h1>kvstore Web 管理</h1>
 <p>{}</p>
-<p style="color:#888;">更新时间: {}（按 F5 手动刷新后此数字会变化）</p>
 {}
-<h2>数据表</h2>
-<table><tr><th>Key</th><th>Value</th></tr>{}</table>
+<h2>数据表 <button type="button" id="refresh-data" onclick="refreshDataTable()">刷新数据表</button></h2>
+<table><tr><th>Key</th><th>Value</th></tr><tbody id="data-table">{}</tbody></table>
 <h2>执行命令</h2>
 <form method="post" action="/cmd">
-  <input type="text" name="command" id="cmd" placeholder="例如: SET course Rust 5" autofocus>
+  <input type="text" name="command" placeholder="例如: SET course Rust 5" autofocus>
   <button type="submit">执行</button>
 </form>
+<script>
+async function refreshDataTable() {{
+  try {{
+    const response = await fetch(`/data?ts=${{Date.now()}}`, {{ cache: "no-store" }});
+    if (!response.ok) return;
+    document.getElementById("data-table").innerHTML = await response.text();
+  }} catch (_) {{
+    // 保留上一次成功显示的数据；用户可以再次点击按钮重试。
+  }}
+}}
+</script>
 <p style="color:#888;">支持: SET key value [ttl] / GET key / DEL key / LIST / STATUS / PING（EXIT 不可用）</p>
 </body></html>"#,
         web::html_escape(&status),
-        updated_at,
         flash_html,
         if rows.is_empty() { "<tr><td colspan=2>（空）</td></tr>".to_string() } else { rows }
     );
@@ -137,6 +139,39 @@ fn query_key(req: &HttpRequest, server: &mut Server) -> String {
         ),
     }
 }
+/// 从当前 Server 状态生成数据表行；每次调用都会重新执行 LIST/GET。
+fn data_rows(server: &mut Server) -> String {
+    let list_reply = run_line_without_count(server, "LIST");
+    let keys: Vec<&str> = match list_reply.strip_prefix("KEYS") {
+        Some(rest) => rest.trim().split(' ').filter(|s| !s.is_empty()).collect(),
+        None => Vec::new(),
+    };
+    let mut rows = String::new();
+    for key in keys {
+        let reply = run_line_without_count(server, &format!("GET {}", key));
+        let value = reply
+            .strip_prefix("VALUE")
+            .and_then(|r| r.trim().split_once(' '))
+            .map(|(_, value)| value.to_string())
+            .unwrap_or_else(|| reply.clone());
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td></tr>",
+            web::html_escape(key),
+            web::html_escape(&value)
+        ));
+    }
+
+    if rows.is_empty() {
+        "<tr><td colspan=2>（空）</td></tr>".to_string()
+    } else {
+        rows
+    }
+}
+
+/// GET /data：返回当前数据表行，供主页手动刷新使用。
+fn data_rows_response(server: &mut Server) -> String {
+    web::http_response(200, "text/html; charset=utf-8", &data_rows(server))
+}
 
 /// POST /cmd：执行命令，返回带结果的主页
 fn run_command(req: &HttpRequest, server: &mut Server) -> String {
@@ -153,3 +188,63 @@ fn run_command(req: &HttpRequest, server: &mut Server) -> String {
         _ => index_page(server, Some("ERROR 命令为空")),
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_server(tag: &str) -> (Server, std::path::PathBuf) {
+        let path = std::env::temp_dir().join(format!(
+            "kvstore_webpage_{}_{}.log",
+            std::process::id(),
+            tag
+        ));
+        let _ = std::fs::remove_file(&path);
+        (Server::new(path.to_str().unwrap()), path)
+    }
+
+    fn get(path: &str) -> HttpRequest {
+        HttpRequest {
+            method: "GET".to_string(),
+            path: path.to_string(),
+            query: Vec::new(),
+            body: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn data_route_reflects_the_latest_written_value() {
+        let (mut server, log_path) = test_server("latest_data");
+        let set = parser::parse_command("SET course Rust").unwrap();
+        assert_eq!(server.execute(&set), Some("OK".to_string()));
+
+        let response = handle(&get("/data"), &mut server);
+
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(response.contains("<td>course</td><td>Rust</td>"));
+        let _ = std::fs::remove_file(log_path);
+    }
+
+    #[test]
+    fn homepage_uses_manual_refresh_without_automatic_reload() {
+        let (mut server, log_path) = test_server("manual_refresh");
+        let response = handle(&get("/"), &mut server);
+
+        assert!(response.contains("id=\"refresh-data\""));
+        assert!(response.contains("onclick=\"refreshDataTable()\""));
+        assert!(!response.contains("http-equiv=\"refresh\""));
+        assert!(!response.contains("window.setInterval"));
+        let _ = std::fs::remove_file(log_path);
+    }
+
+    #[test]
+    fn homepage_display_reads_do_not_increment_commands() {
+        let (mut server, log_path) = test_server("display_counter");
+        let set = parser::parse_command("SET course Rust").unwrap();
+        assert_eq!(server.execute(&set), Some("OK".to_string()));
+
+        let response = handle(&get("/"), &mut server);
+
+        assert!(response.contains("commands=1"));
+        let _ = std::fs::remove_file(log_path);
+}
+    }
